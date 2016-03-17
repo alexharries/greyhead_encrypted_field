@@ -1,0 +1,1152 @@
+<?php
+
+/**
+ * @file
+ * Provides a field for the storage of sensitive data in encrypted form.
+ */
+
+/**
+ * Constants. Sorry for the abbreviation of the module name to "GEF" but the
+ * full name is so long that it rather takes the fun out of using constants to
+ * speed up writing code.
+ */
+
+// This module's name and display name.
+define('GEF_MODULE_TITLE', 'Greyhead Encrypted Field');
+define('GEF_MODULE_NAME', 'greyhead_encrypted_field');
+
+// The element type provided by this module.
+define('GEF_ELEMENT_TYPE', 'greyhead_encrypted_field_element');
+
+// The field type provided by this module.
+define('GEF_FIELD_TYPE', 'greyhead_encrypted_field');
+
+// The field type provided by this module.
+define('GEF_FIELD_VALUE', 'greyhead_encrypted_field_value');
+
+// The field label provided by this module.
+define('GEF_FIELD_LABEL', 'greyhead_encrypted_field_label');
+
+// The field widget provided by this module.
+define('GEF_FIELD_WIDGET', 'greyhead_encrypted_field_widget');
+
+// The field formatter provided by this module.
+define('GEF_FIELD_FORMATTER', 'greyhead_encrypted_field_formatter');
+
+// The field theme function provided by this module.
+define('GEF_FIELD_THEME', 'greyhead_encrypted_field');
+
+// The FAPI element theme function provided by this module.
+define('GEF_FIELD_THEME_ELEMENT', 'greyhead_encrypted_field_element');
+
+// The name of the encrypted data's title key.
+define('GEF_FIELD_LABEL_FAPI_KEY', 'encrypted_label');
+
+// The type of the encrypted data label input.
+define('GEF_FIELD_LABEL_FAPI_TYPE', 'textfield');
+
+// The name of the encrypted data key.
+define('GEF_FIELD_VALUE_FAPI_KEY', 'encrypted_value');
+
+// The type of the encrypted data value input.
+define('GEF_FIELD_VALUE_FAPI_TYPE', 'textarea');
+
+// The name of the encrypted data's ACLs field.
+define('GEF_FIELD_ACLS_FAPI_KEY', 'acls');
+
+// The type of the encrypted data's ACLs field type.
+define('GEF_FIELD_ACLS_FAPI_TYPE', 'textarea');
+
+// The name of the default ACLs field.
+define('GEF_FIELD_DEFAULT_ACLS_FAPI_KEY', 'default_acls');
+
+// The type of the default ACLs field type.
+define('GEF_FIELD_DEFAULT_ACLS_FAPI_TYPE', 'textarea');
+
+// The name of the encrypted data key.
+define('GEF_UID_KEY', 'uid');
+
+// The name of the ACLs key.
+define('GEF_ACLS_KEY', 'acls');
+
+// The name of settings keys.
+define('GEF_SETTINGS_KEY', 'settings');
+
+// ACL validation.
+define('GEF_ACL_VALID_KEY', 'valid');
+define('GEF_ACL_VALID', TRUE);
+define('GEF_ACL_INVALID', FALSE);
+define('GEF_ACL_NOT_VALIDATED', 'not validated');
+
+// The name of the data key.
+define('GEF_DATA', 'data');
+
+// The name of the validation flag key.
+define('GEF_VALID', 'valid');
+
+// Entity types.
+define('GEF_USER_TYPE', 'user-type');
+define('GEF_USER_UID', 'user-uid');
+define('GEF_USER_NAME', 'user-name');
+define('GEF_ROLE_DRUPAL', 'role-drupal');
+define('GEF_ROLE_CUSTOM', 'role-custom');
+
+// Built-in user roles.
+define('GEF_ROLE_DRUPAL_ADMINISTRATOR', 'administrator');
+define('GEF_ROLE_DRUPAL_AUTHENTICATED', 'authenticated user');
+define('GEF_ROLE_DRUPAL_ANONYMOUS', 'anonymous user');
+
+// User types.
+define('GEF_USER_TYPE_CREATOR', 'creator');
+define('GEF_USER_TYPE_ROOT', 'root');
+define('GEF_USER_TYPE_EVERYONE', 'everyone');
+
+// Permission strings.
+define('GEF_PERMISSIONS_LABEL', 'permissions');
+define('GEF_PERMISSIONS_KEY_VALUE_SEPARATOR', ':');
+define('GEF_PERMISSIONS_PART_SEPARATOR', '::');
+define('GEF_PERMISSIONS_VALUE_SEPARATOR', ',');
+define('GEF_PERMISSION_ACCESS_ALL', 'access all encrypted fields');
+define('GEF_PERMISSION_ADMINISTER_MODULE', 'administer encrypted field settings');
+define('GEF_PERMISSION_FULL_CONTROL', 'full control');
+define('GEF_PERMISSION_EDIT_PERMISSIONS', 'edit permissions');
+define('GEF_PERMISSION_VIEW_PERMISSIONS', 'view permissions');
+define('GEF_PERMISSION_VIEW_VALUE', 'view value');
+define('GEF_PERMISSION_EDIT_VALUE', 'edit value');
+define('GEF_PERMISSION_VIEW_TITLE', 'view title');
+define('GEF_PERMISSION_EDIT_TITLE', 'edit title');
+define('GEF_PERMISSION_LINE_BREAK', "\r\n");
+define('GEF_NO_ACCESS', '(!thing encrypted - no access)');
+
+/**
+ * Load in the module's other files.
+ *
+ * We do this outside of a Drupal bootstrap so the functions in that file are
+ * available as early as possible.
+ */
+include_once 'greyhead_encrypted_field.api.inc';
+include_once 'greyhead_encrypted_field.classes.inc';
+
+/**
+ * Implements hook_init().
+ */
+function greyhead_encrypted_field_init() {
+//  // Encrypt data.
+//  $encrypted_text = encrypt('monkey!');
+//  gefdpm($encrypted_text);
+//
+//  // Decrypt data.
+//  $decrypted_text = decrypt($encrypted_text);
+//  gefdpm($decrypted_text);
+}
+
+/**
+ * Implements hook_menu().
+ */
+function greyhead_encrypted_field_menu() {
+  $items = array();
+
+  // Note we use Greyhead Customisations internally, but Four Communications
+  // Customisations in places where the client will see them.
+  $items['admin/config/system/encrypt/encryptedfield'] = array(
+    'title' => 'Encrypted Field settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('greyhead_encrypted_field_admin'),
+    'access arguments' => array(GEF_PERMISSION_ADMINISTER_MODULE),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function greyhead_encrypted_field_permission() {
+  $permissions = array();
+
+  $permissions[GEF_PERMISSION_ADMINISTER_MODULE] = array(
+    'title' => t('Administer Encrypted Field settings'),
+    'description' => t('Change settings of Encrypted Fields.'),
+  );
+
+  $permissions[GEF_PERMISSION_ACCESS_ALL] = array(
+    'title' => t('Access all Encrypted Fields'),
+//    'description' => t('Change settings of Encrypted Fields.'),
+  );
+
+  // Programmatically assemble the other permissions.
+  $permission_types = array(
+    'view' => 'View',
+    'edit' => 'Edit',
+  );
+
+  $ownership_types = array(
+    'own' => 'own',
+    'any' => 'any',
+  );
+
+  $field_types = array(
+    'encrypted fields' => 'encrypted fields',
+  );
+
+  // Permissions, assemble!
+  foreach ($permission_types as $permission_type_machine_name => $permission_type_name) {
+    foreach ($ownership_types as $ownership_type_machine_name => $ownership_type_name) {
+      foreach ($field_types as $field_type_machine_name => $field_type_name) {
+        // Create a text string which we use to let permission administrators
+        // know that this permission is recommended.
+        $description = '';
+
+        if ($ownership_type_machine_name == 'own') {
+          $description = 'This permission is recommended for authenticated users.';
+        }
+
+        // Assemble this permission.
+        $permissions[$permission_type_machine_name . ' ' . $ownership_type_machine_name . ' ' . $field_type_machine_name]
+          = array(
+          'title' => t($permission_type_name . ' ' . $ownership_type_name . ' ' . $field_type_name),
+          'description' => !empty($description) ? t($description) : '',
+        );
+      }
+    }
+  }
+
+//    'decrypt all encrypted fields' => array(
+//      'title' => t('View the decrypted value of all encrypted fields'),
+//      'description' => t('Warning: this permission allows users to view ALL encrypted fields.'),
+//    ),
+//    'edit all encrypted fields' => array(
+//      'title' => t('Edit any encrypted field'),
+//      'description' => t('Warning: this permission allows users to edit ALL encrypted fields, although the user must also have permission to edit the parent entity which the field is attached to.'),
+//    ),
+//    'view title of inaccessible encrypted fields' => array(
+//      'title' => t('View the title of inaccessible encrypted fields'),
+//      'description' => t('Allows users without access to decrypt a field to see the field\'s label. This could be a bad idea if simply knowing that a field contains a certain type of information poses a security risk.'),
+//    ),
+//  );
+
+  return $permissions;
+}
+
+/**
+ * (Obviously, the following function has been stolen shamelessly from
+ * field_permission_example.module > field_permission_example_field_access).
+ *
+ * Implements hook_field_access().
+ *
+ * We want to make sure that fields aren't being seen or edited
+ * by those who shouldn't.
+ *
+ * The two values of $op are 'edit' and 'view'; we also define our own
+ * permissions for more fine-grained control over what the user sees.
+ *
+ * We have to build a permission string similar to those in
+ * hook_permission() in order to ask Drupal whether the user
+ * has that permission. Permission strings will end up being
+ * like 'view any encrypted field titles', 'view own encrypted field titles',
+ * 'edit any encrypted field titles', 'edit own encrypted field titles'.
+ *
+ * There is also an 'administer encrypted fields' permission which grants access
+ * to all encrypted fields.
+ *
+ * The tricky thing here is that a field can be attached to any type
+ * of entity, so it's not always trivial to figure out whether
+ * $account 'owns' the entity. We'll support access restrictions for
+ * user and node entity types, and be permissive with others,
+ * since that's easy to demonstrate.
+ *
+ * @see field_permission_example_permissions()
+ */
+function greyhead_encrypted_field_field_access($op, $field, $entity_type, $entity, $account) {
+  // This hook will be invoked for every field type, so we have to
+  // check that it's the one we're interested in.
+  if (in_array($field['type'], array(GEF_FIELD_TYPE))) {
+    return TRUE;
+
+    // Note that we return TRUE as soon as we have an approval, so that this
+    // function runs as quickly as possible.
+    gefdpm(__FUNCTION__);
+    gefdpm($field);
+
+    $user_is_admin = greyhead_encrypted_field_acl_user_is_admin($account, $entity_type);
+
+    if ($user_is_admin) {
+      return TRUE;
+    }
+
+    // Now check for our own permissions.
+    // $context will end up being either 'any' or 'own'; we start by assuming
+    // we need to pass an "any" check to continue.
+    $context = 'any';
+
+    switch ($entity_type) {
+      case 'user':
+      case 'node':
+        // While administering the field itself, $entity will be
+        // NULL, so we have to check it.
+        if ($entity) {
+          if ($entity->uid == $account->uid) {
+            $context = 'own';
+          }
+        }
+        break;
+    }
+
+    // Assemble a permission string, such as
+    // 'view any encrypted field'
+    $permission = $op . ' ' . $context . ' encrypted fields';
+
+    // Finally, ask Drupal if this account has that permission.
+    $access = user_access($permission, $account);
+
+    if ($access === FALSE) {
+      return $access;
+    }
+  }
+
+  // Nothing failed, so return TRUE here and we will restrict access in
+  // hook_field_load.
+  return TRUE;
+}
+
+/**
+ * Implements hook_element_info().
+ */
+//function greyhead_encrypted_field_element_info() {
+//  $elements = array();
+//
+//  $elements[GEF_ELEMENT_TYPE] = array(
+//    '#input' => TRUE,
+//    '#process' => array('greyhead_encrypted_field_field_process'),
+//    '#theme' => GEF_FIELD_THEME_ELEMENT,
+//    '#theme_wrappers' => array('form_element'),
+//  );
+//
+//  return $elements;
+//}
+
+/**
+ * Formats an encrypted field FAPI element (not currently implemented).
+ *
+ * @see greyhead_encrypted_field_element_info to implement.
+ */
+function theme_greyhead_encrypted_field_element($variables) {
+//  drupal_add_css(drupal_get_path('module', 'link') . '/link.css');
+
+//  die('finish me!');
+
+  $element = $variables['element'];
+
+  $output = drupal_render($element);
+
+//  // Prefix single value link fields with the name of the field.
+//  if (empty($element['#field']['multiple'])) {
+//    if (isset($element['url']) && !isset($element['title'])) {
+//      $element['url']['#title_display'] = 'invisible';
+//    }
+//  }
+//
+//  $output = '';
+//  $output .= '<div class="link-field-subrow clearfix">';
+//  if (isset($element['title'])) {
+//    $output .= '<div class="link-field-title link-field-column">' . drupal_render($element['title']) . '</div>';
+//  }
+//  $output .= '<div class="link-field-url' . (isset($element['title']) ? ' link-field-column' : '') . '">' . drupal_render($element['url']) . '</div>';
+//  $output .= '</div>';
+//  if (!empty($element['attributes']['target'])) {
+//    $output .= '<div class="link-attributes">' . drupal_render($element['attributes']['target']) . '</div>';
+//  }
+//  if (!empty($element['attributes']['title'])) {
+//    $output .= '<div class="link-attributes">' . drupal_render($element['attributes']['title']) . '</div>';
+//  }
+//  if (!empty($element['attributes']['class'])) {
+//    $output .= '<div class="link-attributes">' . drupal_render($element['attributes']['class']) . '</div>';
+//  }
+//  $output .= drupal_render_children($element);
+
+  return $output;
+}
+
+/**
+ * Processes the encrypted field element before display.
+ *
+ * Build the form element. When creating a form using FAPI #process,
+ * note that $element['#value'] is already set.
+ *
+ * The $fields array is in $complete_form['#field_info'][$element['#field_name']].
+ */
+//function greyhead_encrypted_field_field_process($fapi_element, $form_state, $complete_form = array()) {
+//  gefdpm($fapi_element);
+//  gefdpm($form_state);
+//  gefdpm($complete_form);
+//
+////  $instance = field_widget_instance($element, $form_state);
+//  $settings = $instance[GEF_SETTINGS_KEY];
+//
+//  // Check if the current user has access to view or edit the title field.
+//
+//  // Get the encrypted value's title.
+//  $fapi_element[GEF_FIELD_LABEL_FAPI_KEY] = array(
+//    '#type' => GEF_FIELD_LABEL_FAPI_TYPE,
+//    '#required' => TRUE,
+//    '#maxlength' => 255,
+//    '#title' => t('Name of this encrypted field'),
+//  );
+//
+//  // Does the user have access to the field's data?
+//  if (greyhead_encrypted_field_acl_user_access($instance, $fapi_element, GEF_PERMISSION_EDIT_TITLE)) {
+//    $fapi_element[GEF_FIELD_LABEL_FAPI_KEY]['#default_value'] = isset($fapi_element['#value'][GEF_FIELD_LABEL_FAPI_KEY]) ? $fapi_element['#value'][GEF_FIELD_LABEL_FAPI_KEY] : NULL;
+//  }
+//  // Make the field read-only if the user doesn't have edit access.
+//  else {
+//    $fapi_element[GEF_FIELD_LABEL_FAPI_KEY]['#disabled'] = TRUE;
+//
+//    // Is the user allowed to see the title?
+//    if (greyhead_encrypted_field_acl_user_access($instance, $fapi_element, GEF_PERMISSION_VIEW_TITLE)) {
+//      $fapi_element[GEF_FIELD_LABEL_FAPI_KEY]['#value'] = isset($fapi_element['#value'][GEF_FIELD_LABEL_FAPI_KEY]) ? $fapi_element['#value'][GEF_FIELD_LABEL_FAPI_KEY] : NULL;
+//    }
+//    else {
+//      $fapi_element[GEF_FIELD_LABEL_FAPI_KEY]['#value'] = t('Title hidden');
+//    }
+//  }
+//
+//  // Create the encrypted value element.
+//  $fapi_element[GEF_FIELD_VALUE_FAPI_KEY] = array(
+//    '#type' => GEF_FIELD_VALUE_FAPI_TYPE,
+//    '#attributes' => array('class' => array('greyhead-encrypted-field')),
+//    '#title' => t('Encrypted data'),
+//  );
+//
+//  // Does the user have access to the field's data?
+//  if (greyhead_encrypted_field_acl_user_access($instance, $fapi_element, GEF_PERMISSION_EDIT_VALUE)) {
+//    $fapi_element[GEF_FIELD_VALUE_FAPI_KEY]['#default_value'] = isset($fapi_element['#value'][GEF_FIELD_VALUE_FAPI_KEY]) ? $fapi_element['#value'][GEF_FIELD_VALUE_FAPI_KEY] : NULL;
+//  }
+//  else {
+//    $fapi_element[GEF_FIELD_VALUE_FAPI_KEY]['#disabled'] = TRUE;
+//
+//    // Is the user allowed to see the title?
+//    if (greyhead_encrypted_field_acl_user_access($instance, $fapi_element, GEF_PERMISSION_VIEW_TITLE)) {
+//      $fapi_element[GEF_FIELD_VALUE_FAPI_KEY]['#value'] = isset($fapi_element['#value'][GEF_FIELD_VALUE_FAPI_KEY]) ? $fapi_element['#value'][GEF_FIELD_VALUE_FAPI_KEY] : NULL;
+//    }
+//    else {
+//      $fapi_element[GEF_FIELD_VALUE_FAPI_KEY]['#value'] = t('Field encrypted');
+//    }
+//  }
+//
+//  // Create the ACL textarea.
+//  $fapi_element[GEF_ACLS_KEY] = array(
+//    '#type' => 'textarea',
+//    '#title' => t('Permissions'),
+//    '#description' => t('This textarea allows you to define access control ' .
+//      'entries for this field. By default, the user who created the field, ' .
+//      'and the site administrators, have full control over the field. Logged-' .
+//      'in users can view the field title but can\'t view the encrypted data, ' .
+//      'and anonymous users cannot see anything.'),
+//  );
+//
+//  // Does the user have access to edit the ACLs?
+//  if (greyhead_encrypted_field_acl_user_access($instance, $fapi_element, GEF_PERMISSION_EDIT_PERMISSIONS)) {
+//    $fapi_element[GEF_ACLS_KEY]['#default_value'] = isset($fapi_element['#value'][GEF_ACLS_KEY]) ? $fapi_element['#value'][GEF_ACLS_KEY] : NULL;
+//  }
+//  else {
+//    $fapi_element[GEF_ACLS_KEY]['#disabled'] = TRUE;
+//    $fapi_element[GEF_ACLS_KEY]['#value'] = isset($fapi_element['#value'][GEF_ACLS_KEY]) ? $fapi_element['#value'][GEF_ACLS_KEY] : NULL;
+//  }
+
+// @TODO: do we need to create more hidden values to store permissions?
+
+//  $element['url'] = array(
+//    '#type' => 'textfield',
+//    '#maxlength' => LINK_URL_MAX_LENGTH,
+//    '#title' => t('URL'),
+//    '#required' => ($element['#delta'] == 0 && $settings['url'] !== 'optional') ? $element['#required'] : FALSE,
+//    '#default_value' => isset($element['#value']['url']) ? $element['#value']['url'] : NULL,
+//  );
+//  if ($settings['title'] !== 'none' && $settings['title'] !== 'value') {
+//    // Figure out the label of the title field.
+//    if (!empty($settings['title_label_use_field_label'])) {
+//      // Use the element label as the title field label.
+//      $title_label = $element['#title'];
+//      // Hide the field label because there is no need for the duplicate labels.
+//      $element['#title_display'] = 'invisible';
+//    }
+//    else {
+//      $title_label = t('Title');
+//    }
+//
+//    $element['title'] = array(
+//      '#type' => 'textfield',
+//      '#maxlength' => $settings['title_maxlength'],
+//      '#title' => $title_label,
+//      '#description' => t('The link title is limited to @maxlength characters maximum.', array('@maxlength' => $settings['title_maxlength'])),
+//      '#required' => ($settings['title'] == 'required' && (($element['#delta'] == 0 && $element['#required']) || !empty($element['#value']['url']))) ? TRUE : FALSE,
+//      '#default_value' => isset($element['#value']['title']) ? $element['#value']['title'] : NULL,
+//    );
+//  }
+//
+//  // Initialize field attributes as an array if it is not an array yet.
+//  if (!is_array($settings['attributes'])) {
+//    $settings['attributes'] = array();
+//  }
+//  // Add default attributes.
+//  $settings['attributes'] += _link_default_attributes();
+//  $attributes = isset($element['#value']['attributes']) ? $element['#value']['attributes'] : $settings['attributes'];
+//  if (!empty($settings['attributes']['target']) && $settings['attributes']['target'] == LINK_TARGET_USER) {
+//    $element['attributes']['target'] = array(
+//      '#type' => 'checkbox',
+//      '#title' => t('Open URL in a New Window'),
+//      '#return_value' => LINK_TARGET_NEW_WINDOW,
+//      '#default_value' => isset($attributes['target']) ? $attributes['target'] : FALSE,
+//    );
+//  }
+//  if (!empty($settings['attributes']['configurable_title']) && $settings['attributes']['configurable_title'] == 1) {
+//    $element['attributes']['title'] = array(
+//      '#type' => 'textfield',
+//      '#title' => t('Link "title" attribute'),
+//      '#default_value' => isset($attributes['title']) ? $attributes['title'] : '',
+//      '#field_prefix' => 'title = "',
+//      '#field_suffix' => '"',
+//    );
+//  }
+//  if (!empty($settings['attributes']['configurable_class']) && $settings['attributes']['configurable_class'] == 1) {
+//    $element['attributes']['class'] = array(
+//      '#type' => 'textfield',
+//      '#title' => t('Custom link class'),
+//      '#default_value' => isset($attributes['class']) ? $attributes['class'] : '',
+//      '#field_prefix' => 'class = "',
+//      '#field_suffix' => '"',
+//    );
+//  }
+//
+//  // If the title field is available or there are field accepts multiple values
+//  // then allow the individual field items display the required asterisk if needed.
+//  if (isset($element['title']) || isset($element['_weight'])) {
+//    // To prevent an extra required indicator, disable the required flag on the
+//    // base element since all the sub-fields are already required if desired.
+//    $element['#required'] = FALSE;
+//  }
+//
+//  return $fapi_element;
+//}
+
+/**
+ * Implements hook_theme().
+ *
+ * @TODO
+ */
+function greyhead_encrypted_field_theme($existing, $type, $theme, $path) {
+  return array(
+    // Theme definition which renders out an encrypted field.
+    GEF_FIELD_THEME => array(
+      'template' => 'greyhead-encrypted-field-field',
+      'path' => drupal_get_path('module', GEF_MODULE_NAME) . '/templates',
+      'render element' => 'element',
+    ),
+//      'variables' => array(
+//        GEF_TITLE_KEY => NULL,
+//        GEF_TITLE_KEY . '-classes' => NULL,
+//        GEF_ENCRYPTED_DATA_KEY => NULL,
+//        GEF_ENCRYPTED_DATA_KEY . '-classes' => NULL,
+//      ),
+//      'template' => 'greyhead-encrypted-field-field',
+//      'path' => drupal_get_path('module', GEF_MODULE_NAME) . '/templates',
+//    ),
+    // Theme definition which renders out an encrypted field FAPI element.
+    GEF_FIELD_THEME_ELEMENT => array(
+      'render element' => 'element',
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_info().
+ */
+function greyhead_encrypted_field_field_info() {
+  return array(
+//    GEF_FIELD_LABEL => array(
+//      'label' => t('Encrypted field title'),
+//      'description' => t('To help you keep track of the contents of this field, provide a name for this information here.'),
+//      'default_widget' => GEF_FIELD_WIDGET,
+//      'default_formatter' => GEF_FIELD_FORMATTER,
+//    ),
+    GEF_FIELD_TYPE => array(
+      'label' => t('Encrypted field'),
+      'description' => t('Store a value (such as a password) encrypted in the database, with a descriptive title.'),
+      GEF_SETTINGS_KEY => array(
+        GEF_FIELD_DEFAULT_ACLS_FAPI_KEY => greyhead_encrypted_field_acl_default_acls(),
+//        GEF_FIELD_LABEL => '',
+//        'uid' => NULL,
+//        'formatter' => GEF_FIELD_FORMATTER,
+      ),
+      'instance_settings' => array(
+        GEF_FIELD_DEFAULT_ACLS_FAPI_KEY => greyhead_encrypted_field_acl_default_acls(),
+//        GEF_FIELD_LABEL => '',
+//        'uid' => $user->uid,
+//        'formatter' => GEF_FIELD_FORMATTER,
+      ),
+      'default_widget' => GEF_FIELD_WIDGET,
+      'default_formatter' => GEF_FIELD_FORMATTER,
+//      'property_type' => 'text',
+//      'property_callbacks' => array('link_field_property_info_callback'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_instance_settings_form().
+ */
+function greyhead_encrypted_field_field_instance_settings_form($field, $instance) {
+  gefdpm(__FUNCTION__);
+  gefdpm($field);
+  gefdpm($instance);
+
+  $form = array();
+
+  // Don't require a title.
+  // @TODO.
+
+  return $form;
+}
+
+/**
+ * Validation function for greyhead_encrypted_field_instance_settings_form.
+ *
+ * @param $element
+ * @param $form_state
+ * @param $complete_form
+ */
+function greyhead_encrypted_field_settings_form_validate($element, &$form_state, $complete_form) {
+  // @TODO
+
+//  gefdpm(__FUNCTION__);
+//  gefdpm($element);
+//  gefdpm($form_state);
+//  gefdpm($complete_form);
+
+//  if ($form_state['values']['instance'][GEF_SETTINGS_KEY]['title'] === 'value' && empty($form_state['values']['instance'][GEF_SETTINGS_KEY]['title_value'])) {
+//    form_set_error('title_value', t('A default title must be provided if the title is a static value.'));
+//  }
+//  if (!empty($form_state['values']['instance'][GEF_SETTINGS_KEY]['display']['url_cutoff']) && !is_numeric($form_state['values']['instance'][GEF_SETTINGS_KEY]['display']['url_cutoff'])) {
+//    form_set_error('display', t('URL Display Cutoff value must be numeric.'));
+//  }
+//  if (empty($form_state['values']['instance'][GEF_SETTINGS_KEY]['title_maxlength'])) {
+//    form_set_value($element['title_maxlength'], '128', $form_state);
+//  }
+//  elseif (!is_numeric($form_state['values']['instance'][GEF_SETTINGS_KEY]['title_maxlength'])) {
+//    form_set_error('title_maxlength', t('The max length of the link title must be numeric.'));
+//  }
+//  elseif ($form_state['values']['instance'][GEF_SETTINGS_KEY]['title_maxlength'] > 255) {
+//    form_set_error('title_maxlength', t('The max length of the link title cannot be greater than 255 characters.'));
+//  }
+}
+
+/**
+ * Implements hook_field_info_alter().
+ */
+//function greyhead_encrypted_field_field_info_alter(&$info) {
+//  if (module_exists('text')) {
+//    $info[GEF_MODULE_NAME]['default_formatter'] = 'text_plain';
+//  }
+//}
+
+/**
+ * Implements hook_field_is_empty().
+ */
+function greyhead_encrypted_field_field_is_empty($item, $field) {
+  return !isset($item[GEF_FIELD_VALUE_FAPI_KEY]) || $item[GEF_FIELD_VALUE_FAPI_KEY] === '';
+}
+
+/**
+ * Implements hook_field_load().
+ */
+function greyhead_encrypted_field_field_load($entity_type, $entities, $field, $instances, $langcode, &$items, $age) {
+  /**
+   * Decrypt the encrypted field's ACL data, so we can work out who has access.
+   *
+   * We then decide whether we also wish to decrypt the title and/or data
+   * fields just before we build the render array for display, or the widget
+   * form for editing.
+   */
+  gefdpm($items, __FUNCTION__ . ' $items');
+
+  if ($field['type'] == GEF_FIELD_TYPE) {
+    foreach ($entities as $entity_id => $entity) {
+      foreach ($items[$entity_id] as $delta => &$item) {
+        // Get the ACLs, which have been stored as simple strings in the
+        // database.
+        $acl_strings = decrypt($item[GEF_FIELD_ACLS_FAPI_KEY]);
+        $item[GEF_FIELD_ACLS_FAPI_KEY] = greyhead_encrypted_field_acl_textfield_to_acls($acl_strings);
+      }
+    }
+  }
+
+  gefdpm($items, __FUNCTION__ . ' $items');
+  gefdpm($entity_type, __FUNCTION__ . ' $entity_type');
+  gefdpm($entities, __FUNCTION__ . ' $entities');
+  gefdpm($field, __FUNCTION__ . ' $field');
+  gefdpm($instances, __FUNCTION__ . ' $instances');
+
+//  foreach ($entities as $entity_id => $entity) {
+//    gefdpm(greyhead_encrypted_field_single_entity_field_load($entity_type, $field['name'], $entity_id, TRUE));
+//  }
+}
+
+/**
+ * Helper that returns data for a single entity field.
+ *
+ * @stolen_from https://api.drupal.org/comment/48153#comment-48153
+ */
+//function greyhead_encrypted_field_single_entity_field_load($entity_type, $field_name, $entity_id, $current = TRUE) {
+//  $empty_entity_object = new stdClass();
+//  $entities = array($entity_id => $empty_entity_object);
+//
+//  $age = $current ? FIELD_LOAD_CURRENT : FALSE;
+//
+//  $field_system_id_result = db_query("SELECT id FROM {field_config} WHERE field_name = :field_name",
+//    array(':field_name' => $field_name))->fetch();
+//  $fields = array($field_system_id_result->id => array($entity_id));
+//
+//  $options = array();
+//
+//  field_sql_storage_field_storage_load($entity_type, $entities, $age, $fields, $options);
+//
+//  return $entities[$entity_id];
+//}
+
+/**
+ * Implements hook_field_validate().
+ */
+function greyhead_encrypted_field_field_validate($entity_type, $entity, $field, $instance, $langcode, $items, &$errors) {
+//  gefdpm($items, __FUNCTION__ . ' $items');
+//
+//  if ($field['type'] == GEF_FIELD_TYPE) {
+//    foreach ($entities as $entity_id => $entity) {
+//      foreach ($items[$entity_id] as $delta => $item) {
+//        $items[$entity_id][$delta][GEF_FIELD_LABEL_FAPI_KEY] = decrypt($item[GEF_FIELD_LABEL_FAPI_KEY]);
+//        $items[$entity_id][$delta][GEF_FIELD_VALUE_FAPI_KEY] = decrypt($item[GEF_FIELD_VALUE_FAPI_KEY]);
+//        $items[$entity_id][$delta][GEF_FIELD_ACLS_FAPI_KEY] = decrypt($item[GEF_FIELD_ACLS_FAPI_KEY]);
+//      }
+//    }
+//  }
+//
+//  gefdpm($items, __FUNCTION__ . ' $items');
+//  gefdpm($entity_type, __FUNCTION__ . ' $entity_type');
+//  gefdpm($entities, __FUNCTION__ . ' $entities');
+//  gefdpm($field, __FUNCTION__ . ' $field');
+//  gefdpm($instances, __FUNCTION__ . ' $instances');
+
+//  $optional_field_found = FALSE;
+//  if ($instance[GEF_SETTINGS_KEY]['validate_url'] !== 0 || is_null($instance[GEF_SETTINGS_KEY]['validate_url']) || !isset($instance[GEF_SETTINGS_KEY]['validate_url'])) {
+//    foreach ($items as $delta => $value) {
+//      _link_validate($items[$delta], $delta, $field, $entity, $instance, $langcode, $optional_field_found, $errors);
+//    }
+//  }
+
+//  if ($instance[GEF_SETTINGS_KEY]['url'] === 'optional' && $instance[GEF_SETTINGS_KEY]['title'] === 'optional' && $instance['required'] && !$optional_field_found) {
+//    $errors[$field['field_name']][$langcode][0][] = array(
+//      'error' => 'link_required',
+//      'message' => t('At least one title or URL must be entered.'),
+//      'error_element' => array('url' => FALSE, 'title' => TRUE),
+//    );
+//  }
+}
+
+/**
+ * Implements hook_field_presave.
+ *
+ * @param $entity_type
+ * @param $entity
+ * @param $field
+ * @param $instance
+ * @param $langcode
+ * @param $items
+ */
+function greyhead_encrypted_field_field_presave($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  if ($field['type'] == GEF_FIELD_TYPE) {
+    gefdpm($items, __FUNCTION__ . ' $items');
+
+    foreach ($items as $delta => &$item) {
+      // Check if the user has access to edit or view the label.
+      // *** Removed: we now encrypt on element validate after submitting. ***
+//      $item[GEF_FIELD_LABEL_FAPI_KEY] = encrypt($item[GEF_FIELD_LABEL_FAPI_KEY]);
+//      $item[GEF_FIELD_VALUE_FAPI_KEY] = encrypt($item[GEF_FIELD_VALUE_FAPI_KEY]);
+//      $item[GEF_FIELD_ACLS_FAPI_KEY] = encrypt($item[GEF_FIELD_ACLS_FAPI_KEY]);
+    }
+  }
+}
+
+/**
+ * Prepare a field's data for saving.
+ *
+ * @param $item
+ * @param $delta
+ * @param $field
+ * @param $entity
+ * @param $instance
+ */
+function greyhead_encrypted_field_prepare_field_for_saving(&$item, $delta, $field, $entity, $instance) {
+  gefdpm($item, __FUNCTION__ . ' $item');
+  gefdpm($entity, __FUNCTION__ . ' $entity');
+  gefdpm($field, __FUNCTION__ . ' $field');
+  gefdpm($instance, __FUNCTION__ . ' $instance');
+
+//  // Process the title field first. Trim the field's value.
+//  $item[GEF_FIELD_LABEL_FAPI_KEY] = trim($item[GEF_FIELD_LABEL_FAPI_KEY]);
+//
+//  // If the user has permission to edit the encrypted value, it will need re-
+//  // encrypting.
+//  $item[GEF_FIELD_VALUE_FAPI_KEY] = encrypt($item[GEF_FIELD_VALUE_FAPI_KEY]);
+//  drupal_set_message('Re-encrypt here - greyhead_encrypted_field_prepare_field_for_saving');
+//
+//  // @TODO
+
+//  // Trim whitespace from URL.
+//  if (!empty($item['url'])) {
+//    $item['url'] = trim($item['url']);
+//  }
+//
+//  // If no attributes are set then make sure $item['attributes'] is an empty
+//  // array, so $field['attributes'] can override it.
+//  if (empty($item['attributes'])) {
+//    $item['attributes'] = array();
+//  }
+//
+//  // Serialize the attributes array.
+//  if (!is_string($item['attributes'])) {
+//    $item['attributes'] = serialize($item['attributes']);
+//  }
+//
+//  // Don't save an invalid default value (e.g. 'http://').
+//  if ((isset($field['widget']['default_value'][$delta]['url']) && $item['url'] == $field['widget']['default_value'][$delta]['url']) && is_object($entity)) {
+//    $langcode = !empty($entity) ? field_language($instance['entity_type'], $entity, $instance['field_name']) : LANGUAGE_NONE;
+//    if (!link_validate_url($item['url'], $langcode)) {
+//      unset($item['url']);
+//    }
+//  }
+}
+
+/**
+ * Implements hook_field_insert().
+ */
+function greyhead_encrypted_field_field_insert($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  foreach ($items as $delta => &$value) {
+    greyhead_encrypted_field_prepare_field_for_saving($value, $delta, $field, $entity, $instance);
+  }
+}
+
+/**
+ * Implements hook_field_update().
+ */
+function greyhead_encrypted_field_field_update($entity_type, $entity, $field, $instance, $langcode, &$items) {
+  foreach ($items as $delta => &$value) {
+    greyhead_encrypted_field_prepare_field_for_saving($value, $delta, $field, $entity, $instance);
+  }
+}
+
+/**
+ * Implements hook_field_prepare_view().
+ */
+function greyhead_encrypted_field_field_prepare_view($entity_type, $entities, $field, $instances, $langcode, &$items) {
+  gefdpm($items);
+  gefdpm($entity_type);
+  gefdpm($entities);
+  gefdpm($field);
+  gefdpm($instances);
+
+  foreach ($items as $entity_id => $entity_items) {
+    foreach ($entity_items as $delta => $value) {
+//      _link_sanitize($items[$entity_id][$delta], $delta, $field, $instances[$entity_id], $entities[$entity_id]);
+    }
+  }
+}
+
+/**
+ * Implements hook_field_widget_info().
+ */
+function greyhead_encrypted_field_field_widget_info() {
+  return array(
+    GEF_FIELD_WIDGET => array(
+      'label' => t('Encrypted field'),
+      'field types' => array(GEF_FIELD_TYPE),
+//      'multiple values' => FIELD_BEHAVIOR_DEFAULT,
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_widget_form().
+ */
+function greyhead_encrypted_field_field_widget_form(&$form, &$form_state, $field, $instance, $langcode, $items, $items_delta, $widget_form) {
+  // Set up the delta for our return element.
+  $widget_form['#delta'] = $items_delta;
+
+  // Is this a new field?
+  // @TODO
+
+  gefdpm(__FUNCTION__);
+  gefdpm($form, __FUNCTION__ . ' $form');
+  $entity = NULL;
+  if (isset($form['#entity'])) {
+    $entity = $form['#entity'];
+    gefdpm($form['#entity'], __FUNCTION__ . ' $form[#entity]');
+  }
+  gefdpm($form_state, __FUNCTION__ . ' $form_state');
+  gefdpm($field, __FUNCTION__ . ' $field');
+  gefdpm($instance, __FUNCTION__ . ' $instance');
+  gefdpm($langcode, __FUNCTION__ . ' $langcode');
+  gefdpm($items, __FUNCTION__ . ' $items');
+  gefdpm($items_delta, __FUNCTION__ . ' $items_delta');
+  gefdpm($widget_form, __FUNCTION__ . ' $widget_form');
+
+  $test_instance = field_widget_instance($widget_form, $form_state);
+  gefdpm($test_instance);
+
+  // Temporarily assume we're always on a settings form.
+  $is_settings_form = TRUE;
+  gefdpm(__FUNCTION__ . ': $is_settings_form forced to TRUE');
+
+  // Grab the existing value for the field, if available.
+  $value = isset($items[$items_delta][GEF_FIELD_VALUE_FAPI_KEY]) ? $items[$items_delta][GEF_FIELD_VALUE_FAPI_KEY] : encrypt('');
+  $label = isset($items[$items_delta][GEF_FIELD_LABEL_FAPI_KEY]) ? $items[$items_delta][GEF_FIELD_LABEL_FAPI_KEY] : encrypt('');
+
+  // Get the ACLs from the item.
+  $acls = greyhead_encrypted_field_acl_get_acls($field, $instance, $items, $items_delta);
+
+  // Create the widget label element.
+  $widget_label_element = greyhead_encrypted_field_acl_get_label_element($label, !$is_settings_form);
+
+  // Create the widget value element.
+  $widget_value_element = greyhead_encrypted_field_acl_get_value_element($instance['widget']['type'], $value);
+
+  // Create the widget ACL element.
+  $widget_acls_element = greyhead_encrypted_field_acl_get_acls_element($acls);
+
+  // Add the elements into the widget's form.
+  $widget_form[GEF_FIELD_LABEL_FAPI_KEY] = $widget_label_element;
+  $widget_form[GEF_FIELD_VALUE_FAPI_KEY] = $widget_value_element;
+  $widget_form[GEF_FIELD_ACLS_FAPI_KEY] = $widget_acls_element;
+
+  // Process the access checks which modify the elements depending on the
+  // current user's access level, unless we're on the widget settings form, in
+  // which case we allow access to everything.
+  greyhead_encrypted_field_acl_check_widget_form_elements_access($widget_form, $entity, $acls);
+
+  gefdpm(__FUNCTION__);
+  gefdpm($form);
+  gefdpm($form_state);
+  gefdpm($items);
+  gefdpm($items_delta);
+  gefdpm($field);
+  gefdpm($instance);
+  gefdpm($widget_form);
+
+  return $widget_form;
+
+//  $element += array(
+////    '#type' => $instance['widget']['type'],
+//    '#type' => 'textfield',
+//    '#default_value' => isset($items[$delta]) ? $items[$delta] : '',
+//  );
+//
+//  return $element;
+}
+
+/**
+ * Implements hook_field_widget_error().
+ */
+function greyhead_encrypted_field_field_widget_error($element, $error, $form, &$form_state) {
+  if ($error['error_element'][GEF_FIELD_LABEL_FAPI_KEY]) {
+    form_error($element[GEF_FIELD_LABEL_FAPI_KEY], $error['message']);
+  }
+  elseif ($error['error_element'][GEF_FIELD_VALUE_FAPI_KEY]) {
+    form_error($element[GEF_FIELD_VALUE_FAPI_KEY], $error['message']);
+  }
+  elseif ($error['error_element'][GEF_FIELD_ACLS_FAPI_KEY]) {
+    form_error($element[GEF_FIELD_ACLS_FAPI_KEY], $error['message']);
+  }
+  elseif ($error['error_element'][GEF_FIELD_DEFAULT_ACLS_FAPI_KEY]) {
+    form_error($element[GEF_FIELD_DEFAULT_ACLS_FAPI_KEY], $error['message']);
+  }
+}
+
+/**
+ * Implements hook_field_widget_settings_form().
+ */
+//function greyhead_encrypted_field_settings_form($field, $instance) {
+//  $widget = $instance['widget'];
+//  $settings = $widget[GEF_SETTINGS_KEY];
+//
+//  $element['placeholder'] = array(
+//    '#type' => 'textfield',
+//    '#title' => t('Placeholder'),
+//    '#default_value' => $settings['placeholder'],
+//    '#description' => t('The placeholder is a short hint (a word or short phrase) intended to aid the user with data entry. A hint could be a sample value or a brief description of the expected format.'),
+//    '#access' => module_exists('elements') || module_exists('placeholder'),
+//  );
+//
+//  return $element;
+//}
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function greyhead_encrypted_field_field_formatter_info() {
+  return array(
+    GEF_FIELD_FORMATTER => array(
+      'label' => t('Encrypted field formatter'),
+      'field types' => array(GEF_FIELD_TYPE),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_info_alter().
+ */
+//function greyhead_encrypted_field_formatter_info_alter(&$info) {
+//  if (isset($info['text_plain'])) {
+//    $info['text_plain']['field types'][] = GEF_MODULE_NAME;
+//  }
+//}
+
+/**
+ * Implements hook_field_formatter_settings_form().
+ */
+//function greyhead_encrypted_field_field_formatter_settings_form($field, $instance, $view_mode, $form, &$form_state) {
+//  $display = $instance['display'][$view_mode];
+//  $settings = $display[GEF_SETTINGS_KEY];
+//
+//  $elements['title'] = array(
+//    '#type' => 'textfield',
+//    '#title' => t('Name of encrypted item'),
+//    '#description' => t('Enter a descriptive name of the encrypted field data, for example "Test account password".'),
+//    '#default_value' => $settings['title'],
+//    '#required' => TRUE,
+//  );
+//
+//  return $elements;
+//}
+
+/**
+ * Implements hook_field_formatter_settings_summary().
+ */
+//function greyhead_encrypted_field_field_formatter_settings_summary($field, $instance, $view_mode) {
+//  $display = $instance['display'][$view_mode];
+//  $settings = $display[GEF_SETTINGS_KEY];
+//
+//  if (!empty($settings['title'])) {
+//    $summary = t('Link using text: @title', array('@title' => $settings['title']));
+//  }
+//  else {
+//    $summary = t('Link using provided telephone number.');
+//  }
+//
+//  return $summary;
+//}
+
+/**
+ * Implements hook_field_formatter_prepare_view().
+ */
+//function greyhead_encrypted_field_field_formatter_prepare_view($entity_type, $entities, $field, $instances, $langcode, &$items, $displays) {
+//  gefdpm($items);
+//  gefdpm($entity_type);
+//  gefdpm($entities);
+//  gefdpm($field);
+//  gefdpm($instances);
+//
+//  foreach ($entities as $id => $entity) {
+//    $settings = $displays[$id][GEF_SETTINGS_KEY];
+//    foreach ($items[$id] as &$item) {
+//      $item['title'] = $settings['title'];
+//    }
+//  }
+//}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function greyhead_encrypted_field_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  gefdpm(__FUNCTION__);
+  gefdpm($items, __FUNCTION__ . ' $items');
+  gefdpm($entity_type, __FUNCTION__ . ' $entity_type');
+  gefdpm($entity, __FUNCTION__ . ' $entity');
+  gefdpm($field, __FUNCTION__ . ' $field');
+  gefdpm($instance, __FUNCTION__ . ' $instance');
+
+  $element = array();
+
+  switch ($display['type']) {
+    case GEF_FIELD_FORMATTER:
+      foreach ($items as $delta => $item) {
+        // Flags to indicate to the theming function if the title/value was
+        // decrypted.
+        $label_decrypted = $value_decrypted = FALSE;
+
+        // Get the decrypted title and/or value, or get the "value hidden" text
+        // if the user doesn't have access.
+        if (greyhead_encrypted_field_acl_user_access(GEF_PERMISSION_VIEW_TITLE, $item[GEF_FIELD_ACLS_FAPI_KEY], $entity, $entity_type)) {
+          $item[GEF_FIELD_LABEL_FAPI_KEY] = decrypt($item[GEF_FIELD_LABEL_FAPI_KEY]);
+          $label_decrypted = TRUE;
+        }
+        else {
+          $item[GEF_FIELD_LABEL_FAPI_KEY] =  t(GEF_NO_ACCESS, array('!thing' => t('label')));
+        }
+
+        if (greyhead_encrypted_field_acl_user_access(GEF_PERMISSION_VIEW_VALUE, $item[GEF_FIELD_ACLS_FAPI_KEY], $entity, $entity_type)) {
+          $item[GEF_FIELD_VALUE_FAPI_KEY] = decrypt($item[GEF_FIELD_VALUE_FAPI_KEY]);
+          $value_decrypted = TRUE;
+        }
+        else {
+          $item[GEF_FIELD_VALUE_FAPI_KEY] =  t(GEF_NO_ACCESS, array('!thing' => t('field')));
+        }
+
+        // Assemble our render array.
+        $render_array = array(
+          '#theme' => GEF_FIELD_THEME,
+          '#id' => drupal_html_id('encrypted-field'),
+          GEF_FIELD_LABEL_FAPI_KEY => $item[GEF_FIELD_LABEL_FAPI_KEY],
+          GEF_FIELD_LABEL_FAPI_KEY . '_decrypted' => $label_decrypted,
+          GEF_FIELD_VALUE_FAPI_KEY => $item[GEF_FIELD_VALUE_FAPI_KEY],
+          GEF_FIELD_VALUE_FAPI_KEY . '_decrypted' => $value_decrypted,
+          '#attached' => array(
+            'css' => array(
+              drupal_get_path('module', GEF_MODULE_NAME) .
+              '/css/greyhead-encrypted-field.css',
+            ),
+            'js' => array(
+              drupal_get_path('module', GEF_MODULE_NAME) .
+              '/js/greyhead-encrypted-field.js',
+            ),
+          ),
+        );
+
+        $element[$delta] = $render_array;
+      }
+      break;
+  }
+
+  return $element;
+}
+
+/**
+ * Returns a system settings form.
+ *
+ * @return mixed
+ */
+function greyhead_encrypted_field_admin() {
+  $form = array();
+
+  // Add default ACLs.
+//  $default_acls_array = greyhead_encrypted_field_acl_default_acls();
+  $form['greyhead_encrypted_field_default_acls'] = greyhead_encrypted_field_acl_get_acls_element(greyhead_encrypted_field_acl_default_acls());
+
+  // Debugging mode.
+  $form['greyhead_encrypted_field_debug'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Show debugging information?'),
+    '#description' => t('Check this box to show lots of debug information. Requires devel module to be enabled.'),
+    '#default_value' => variable_get('greyhead_encrypted_field_debug'),
+  );
+
+  return system_settings_form($form);
+}
