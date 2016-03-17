@@ -38,14 +38,14 @@
 
 .encrypted-field .encrypted-field-value .contenteditable {
   background-color: transparent;
-  border: 0;
+  border: #eee 1px solid;
   width: 100%;
   height: auto;
   padding: 0.75em;
-  z-index: 1;
+  margin: 0;
 }
 
-.contenteditable:focus {
+.encrypted-field .encrypted-field-value .contenteditable:focus {
   outline: 0;
 }
 
@@ -94,8 +94,11 @@
 
 .encrypted-field:hover .encrypted-field-value {
   bottom: auto;
+  z-index: 10;
 }
 
 .encrypted-field:hover .encrypted-field-value.decrypted .contenteditable {
   color: #33aa33;
+  border-color: #888;
+  background-color: #fff;
 }

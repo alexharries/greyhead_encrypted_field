@@ -1601,13 +1601,7 @@ function greyhead_encrypted_field_acl_check_widget_form_element_access(&$widget_
     // Yes. If the #decrypted flag is FALSE, we need to decrypt it and update
     // the flag.
     if (!$widget_form_element['#decrypted']) {
-      $default_value = $widget_form_element['#default_value'];
-
-      // If the value of this field is serialized, it's probably encrypted.
-      if (@unserialize($default_value)) {
-        $widget_form_element['#default_value'] = @decrypt($default_value);
-      }
-
+      $widget_form_element['#default_value'] = greyhead_encrypted_field_decrypt($widget_form_element['#default_value']);
       $widget_form_element['#decrypted'] = TRUE;
     }
 
@@ -1727,4 +1721,21 @@ function greyhead_encrypted_field_greyhead_encrypted_field_acl_validate_alter(&$
       greyhead_encrypted_field_error('The following unsafe permissions were removed from the %entity_type "%entity_id" ACL: %permissions_removed.', $parameters, WATCHDOG_WARNING);
     }
   }
+}
+
+/**
+ * Wrapper around decrypt() which doesn't fall on its arse when the value to be
+ * decrypted is ''.
+ *
+ * @param $value
+ *
+ * @return string
+ */
+function greyhead_encrypted_field_decrypt($value) {
+  // If the value of this field is serialized, it's probably encrypted.
+  if (!(unserialize($value) === FALSE)) {
+    $value = @decrypt($value);
+  }
+
+  return $value;
 }
