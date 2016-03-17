@@ -32,43 +32,78 @@
  *
  *  - role-custom: a user role
  */
-function greyhead_encrypted_field_acl_default_acls() {
-  $default_acls = &drupal_static(__FUNCTION__);
+function greyhead_encrypted_field_acl_default_acls($context = GEF_ACL_CONTEXT_FIELD, $reload = FALSE, $reset_to_defaults = FALSE) {
+  // Get the name for this type of default.
+  $cache_id = 'greyhead_encrypted_field_default_acls_' . $context;
 
-  if (is_null($default_acls)) {
-    $default_acls = variable_get('greyhead_encrypted_field_default_acls');
+  $default_acls = &drupal_static($cache_id);
 
-    if (is_null($default_acls)) {
+  if (is_null($default_acls) || $reload || $reset_to_defaults) {
+    $default_acls = variable_get($cache_id);
+
+    if (is_null($default_acls) || $reset_to_defaults) {
       $default_acls_array = array();
 
       // Implement a hook_greyhead_encrypted_field_acl_default_acls_alter.
-      drupal_alter(GEF_MODULE_NAME . '_acl_default_acls', $default_acls_array);
+      drupal_alter($cache_id, $default_acls_array);
 
       // Convert back into strings.
       $default_acls = greyhead_encrypted_field_acl_acls_to_strings($default_acls_array);
 
       // Set the default ACLs in the variable table.
-      variable_set('greyhead_encrypted_field_default_acls', $default_acls);
+      variable_set($cache_id, $default_acls);
     }
   }
+
+  gefdpm(__FUNCTION__);
+  gefdpm($cache_id);
+  gefdpm($default_acls);
 
   return $default_acls;
 }
 
 /**
- * Implements hook_greyhead_encrypted_field_acl_default_acls_alter.
+ * Implements hook_greyhead_encrypted_field_default_acls_sitewide_alter.
  *
  * @param $default_acls
  */
-function greyhead_encrypted_field_greyhead_encrypted_field_acl_default_acls_alter(&$default_acls) {
+function greyhead_encrypted_field_greyhead_encrypted_field_default_acls_sitewide_alter(&$default_acls) {
+  // Allow the field creator full control over the field.
   $acl = new greyhead_acl(GEF_USER_TYPE, GEF_USER_TYPE_CREATOR, GEF_PERMISSION_FULL_CONTROL);
   $default_acls[$acl->to_string()] = $acl;
 
-  $acl = new greyhead_acl(GEF_ROLE_DRUPAL, GEF_ROLE_DRUPAL_ADMINISTRATOR, GEF_PERMISSION_FULL_CONTROL);
+  // On fields attached to nodes, allow users with permission to edit the node
+  // to edit the encrypted field labels and values.
+  $acl = new greyhead_acl(GEF_PARENT_NODE, GEF_NODE_EDIT, array(
+    GEF_PERMISSION_EDIT_TITLE,
+    GEF_PERMISSION_EDIT_VALUE,
+  ));
   $default_acls[$acl->to_string()] = $acl;
 
-  $acl = new greyhead_acl(GEF_ROLE_DRUPAL, GEF_ROLE_DRUPAL_AUTHENTICATED, GEF_PERMISSION_VIEW_TITLE);
+  // On fields attached to nodes, allow users with permission to edit the node
+  // to edit the encrypted field labels and values.
+  $acl = new greyhead_acl(GEF_PARENT_NODE, GEF_NODE_VIEW, array(
+    GEF_PERMISSION_VIEW_TITLE,
+    GEF_PERMISSION_VIEW_VALUE,
+  ));
   $default_acls[$acl->to_string()] = $acl;
+
+  // Allow site administrators to view permissions and take control over the
+  // field if they choose.
+  $acl = new greyhead_acl(GEF_ROLE_DRUPAL, GEF_ROLE_DRUPAL_ADMINISTRATOR, array(
+    GEF_PERMISSION_EDIT_PERMISSIONS,
+    GEF_PERMISSION_VIEW_TITLE,
+    GEF_PERMISSION_VIEW_VALUE,
+  ));
+  $default_acls[$acl->to_string()] = $acl;
+}
+
+/**
+ * Implements hook_greyhead_encrypted_field_default_acls_field_alter.
+ *
+ * @param $default_acls
+ */
+function greyhead_encrypted_field_greyhead_encrypted_field_default_acls_field_alter(&$default_acls) {
 }
 
 /**
@@ -101,15 +136,18 @@ function greyhead_encrypted_field_acl_textfield_to_acls($textfield) {
   // Trim the data and normalise the line endings.
   $textfield = trim(greyhead_customisations_normalise_line_endings($textfield));
 
-  // Break the text into ACLs.
-  $acl_strings = explode(GEF_PERMISSION_LINE_BREAK, $textfield);
-
   // Initialise an array of ACL entities.
   $acls = array();
 
-  // Trim each ACL as well.
-  foreach ($acl_strings as $acl_string) {
-    $acls[$acl_string] = greyhead_encrypted_field_acl_string_to_acl($acl_string);
+  // Do we have any ACL strings?
+  if (!empty($textfield)) {
+    // Break the text into ACLs.
+    $acl_strings = explode(GEF_PERMISSION_LINE_BREAK, $textfield);
+
+    // Trim each ACL as well.
+    foreach ($acl_strings as $acl_string) {
+      $acls[$acl_string] = greyhead_encrypted_field_acl_string_to_acl($acl_string);
+    }
   }
 
   return $acls;
@@ -158,23 +196,89 @@ function greyhead_encrypted_field_acl_string_to_acl($acl_string) {
 }
 
 /**
- * Checks whether a user has permission to perform a defined action.
+ * Check if a list of ACLs grant a permission to a user.
+ *
+ * To check whether a user has a permission granted by a list of ACLs, we first
+ * get a list of permissions which also implicitly grant $permission, which
+ * allows us to return TRUE for example if we've been asked if the user can view
+ * a value, and the user only has 'full access'.
+ *
+ * We then loop through each the access control list object in $acls
+ * to determine if that ACL provides $permission, or any permissions which we
+ * have in our list of implicit grants.
+ *
+ * If a particular ACL provides a matching permission, we then query the access
+ * callback for the ACL's object type to see if the user is a member of that
+ * entity type, for example a Drupal role.
+ *
+ * $entity and $entity_type provide context for us for ACLs which are based on
+ * a property of the entity to which the ACL's field is attached. For example,
+ * we might want to grant full access to the user who owns (i.e. created) the
+ * node to which an encrypted field is attached.
+ *
+ * ---
+ *
+ * For example, we might ask:
+ *
+ * greyhead_encrypted_field_acl_user_access('edit value', $acls, node_load(123), 'node', $user);
+ *
+ * Which we can break down to:
+ *
+ * 'edit value': the permission to edit an encrypted field's value.
+ *
+ * $acls: for the sake of this example, this is an array containing two access
+ * control lists:
+ *
+ *  - full control over the encrypted field for the creator of the field's
+ *    parent entity (node 123).
+ *
+ *  - view access to the field's label and value for logged-in ("authorized")
+ *    users.
+ *
+ * A node object, node 123, owned by uid 567.
+ *
+ * 'node' is the entity type.
+ *
+ * $user is the user account, with a uid of 567.
+ *
+ * ---
+ *
+ * In the example above, the 'edit value' permission is also granted by the
+ * 'full control' permission.
+ *
+ * In the ACLs provided, one of them provides the 'full control' permission
+ * for the creator of the $entity, which is node 123.
+ *
+ * Node 123's owner is uid 567, which we pass to the access callback along with
+ * the $user's uid, and because they match, the user gets access.
+ *
+ * Yay!
+ *
+ * ---
  *
  * For a list of actions available,
- * @see      greyhead_encrypted_field_acl_permissions_available().
+ * @see greyhead_encrypted_field_acl_permissions_available().
  *
- * @param      $permission string The permission being checked, for example 'edit label'
- *                         or 'view value', etc.
- * @param      $acls
- * @param      $entity
- * @param null $entity_type
- * @param null $account
+ * @param string $permission           The permission being checked, for example
+ *                                     'edit label' or 'view value', etc.
+ *
+ * @param array       $acls            An array of ACLs where the key is the ACL
+ *                                     string, and the value is a greyhead_acl
+ *                                     object.
+ *
+ * @param mixed|NULL  $entity          A valid Drupal entity, such as a node,
+ *                                     user, etc. This entity's owner uid, if
+ *                                     set, is passed in to the access callback
+ *                                     for each ACL as the entity owner.
+ *
+ * @param string|NULL $entity_type     The type of entity to which we are
+ *                                     checking $account's access, if available.
+ *
+ * @param null        $account
  *
  * @return bool
  */
 function greyhead_encrypted_field_acl_user_access($permission, $acls, $entity = NULL, $entity_type = NULL, $account = NULL) {
-  // @TODO: statically cache part or all of this.
-
   // Create our access result, defaulting to no access.
   $access = FALSE;
 
@@ -183,17 +287,11 @@ function greyhead_encrypted_field_acl_user_access($permission, $acls, $entity = 
     $account = $GLOBALS['user'];
   }
 
-//  // If $instance is new, $element will be NULL.
-//  if (is_null($entity)) {
-//    $instance['acls'] = greyhead_encrypted_field_acl_default_acls();
-//  }
-
-//  gefdpm(__FUNCTION__ . ' - unfinished');
-//  gefdpm($instance);
-//  gefdpm($entity);
-//  gefdpm($entity_type);
-//  gefdpm($permission);
-//  gefdpm($account);
+  gefdpm(__FUNCTION__);
+  gefdpm($entity);
+  gefdpm($entity_type);
+  gefdpm($permission);
+  gefdpm($account);
 
   // Check if the user is a super-duper admin.
   $access = $access || greyhead_encrypted_field_acl_user_is_admin($account, $entity_type);
@@ -203,10 +301,10 @@ function greyhead_encrypted_field_acl_user_access($permission, $acls, $entity = 
     // It's valid. Now, we need to see if any other permissions also grant this
     // permission. For example, "edit value" has the implicit permission "view
     // value".
-    $permissions_which_grant_this_permission = greyhead_encrypted_field_acl_permission_also_granted_by($permission);
+    $permissions_which_also_grant_this_permission = greyhead_encrypted_field_permission_implied_by_permissions($permission);
 
     // Create an array with all the permissions which will return a TRUE.
-    $all_possible_permissions = $permissions_which_grant_this_permission;
+    $all_possible_permissions = $permissions_which_also_grant_this_permission;
     $all_possible_permissions[] = $permission;
 
     // Loop through each ACL and check whether any of them define any of
@@ -241,9 +339,16 @@ function greyhead_encrypted_field_acl_user_access($permission, $acls, $entity = 
               'entity' => $entity,
             );
 
+            gefdpm(__FUNCTION__ . ' - access check: callback function: ' . $access_callback_function);
+            gefdpm($options, '$options');
+
             // At last, we know everything we need to - check if the user has
             // access as a result of this ACL.
-            $access = $access || call_user_func($access_callback_function, $options);
+            $callback_response = call_user_func($access_callback_function, $options);
+            gefdpm($callback_response, '$callback_response');
+
+            $access = $access || $callback_response;
+            gefdpm($access, '$access');
           }
         }
       }
@@ -254,9 +359,150 @@ function greyhead_encrypted_field_acl_user_access($permission, $acls, $entity = 
         break;
       }
     }
+
+    // Implement a hook_greyhead_encrypted_field_acl_user_access_alter.
+    drupal_alter('greyhead_encrypted_field_acl_user_access', $access, $permission, $acls, $entity, $entity_type, $account);
   }
 
   return $access;
+}
+
+/**
+ * Implements hook_greyhead_encrypted_field_acl_user_access_alter.
+ *
+ * This function will check whether an anonymous user is being granted a
+ * permission which allows them to view (i.e. decrypt) an encrypted title or
+ * value.
+ *
+ * @param $access
+ * @param $permission
+ * @param $acls
+ * @param $entity
+ * @param $entity_type
+ * @param $account
+ */
+function greyhead_encrypted_field_greyhead_encrypted_field_acl_user_access_alter(&$access, $permission, $acls, $entity, $entity_type, $account) {
+  // We only need to check if permission has already been granted, and the
+  // $account user is anonymous.
+  if ($access && !$account->uid) {
+    // Skip if anonymous decryption is explicitly permitted.
+    if (!variable_get('greyhead_encrypted_field_allow_anonymous_decryption')) {
+      // Get the list of permissions implied by $permission.
+      $implicit_permissions = greyhead_encrypted_field_permission_implies_permissions($permission);
+
+      // Get the list of dangerous permissions.
+      $dangerous_permissions = greyhead_encrypted_field_dangerous_permissions();
+
+      // If any of $dangerous_permissions appear in $implicit_permissions, then
+      // this access check could potentially grant an anonymous user access to
+      // sensitive information, and we will block that attempt and log a
+      // warning.
+      $matches = array_intersect($implicit_permissions, $dangerous_permissions);
+
+      if (!empty($matches)) {
+        // We've found one or more dangerous permissions which are granted by
+        // this access check, so we will block this permission and log a
+        // warning.
+        $access = FALSE;
+
+        $message = 'An unsafe permission granting anonymous access to encrypted data was blocked.<br /> '
+          . 'The permission is %permission, which implies the following permissions: %implicit_permissions.<br /> '
+          . 'The following permissions are considered dangerous: %dangerous_permissions. <br />'
+          . 'If you want to disable this security check (but you shouldn\'t because it\'s there to protect your data), see !settings_link.';
+
+        greyhead_encrypted_field_error($message, array(
+          '%permission' => $permission,
+          '%implicit_permissions' => implode(', ', $implicit_permissions),
+          '%dangerous_permissions' => implode(', ', $dangerous_permissions),
+          '!settings_link' => l(t('the Greyhead Encrypted Field settings page'), 'admin/config/system/encrypt/encryptedfield'),
+        ), WATCHDOG_WARNING, TRUE);
+      }
+    }
+  }
+}
+
+/**
+ * Gets a list of permissions which would allow anonymous users access to
+ * view (i.e. decrypt) encrypted field labels or values.
+ *
+ * @return array
+ */
+function greyhead_encrypted_field_dangerous_permissions() {
+  $dangerous_permissions = &drupal_static(__FUNCTION__);
+
+  if (is_null($dangerous_permissions)) {
+    $dangerous_permissions = array(
+      GEF_PERMISSION_FULL_CONTROL,
+      GEF_PERMISSION_EDIT_PERMISSIONS,
+      GEF_PERMISSION_VIEW_VALUE,
+      GEF_PERMISSION_EDIT_TITLE,
+      GEF_PERMISSION_EDIT_VALUE,
+    );
+
+    // Implement a hook_greyhead_encrypted_field_dangerous_permissions_alter.
+    drupal_alter('greyhead_encrypted_field_dangerous_permissions', $dangerous_permissions);
+  }
+
+  return $dangerous_permissions;
+}
+
+/**
+ * Get a list of entities which could allow anonymous access.
+ *
+ * This function returns a list of entity types and IDs which include
+ * anonymous users, for example "user-type:everyone".
+ *
+ * If an ACL specifies one of these entity type-and-ID combinations, it should
+ * be checked for any permission grants which are included in
+ * greyhead_encrypted_field_dangerous_permissions().
+ *
+ * Alternatively, this information can be used in a
+ * hook_greyhead_encrypted_field_acl_user_access_alter, by looking at the
+ * permission string's implicit permissions and checking if any are present in
+ * greyhead_encrypted_field_dangerous_permissions().
+ *
+ * @return array
+ */
+function greyhead_encrypted_field_dangerous_entities() {
+  $dangerous_entities = &drupal_static(__FUNCTION__);
+
+  if (is_null($dangerous_entities)) {
+    $dangerous_entities = array(
+      GEF_ROLE_DRUPAL => array(GEF_ROLE_DRUPAL_ANONYMOUS),
+      GEF_USER_TYPE => array(GEF_USER_TYPE_EVERYONE),
+    );
+
+    // Implement a hook_greyhead_encrypted_field_dangerous_entities_alter.
+    drupal_alter('greyhead_encrypted_field_dangerous_entities', $dangerous_entities);
+  }
+
+  return $dangerous_entities;
+}
+
+/**
+ * Checks whether $permission also grants $implied_permission to a user.
+ *
+ * For example, we might want to know if 'full control' implies 'edit value'
+ * (it does), or whether 'edit permissions' implies 'view value' (it doesn't,
+ * but the user can use their 'edit permissions' grant to give themselves
+ * permission to edit the field's value).
+ *
+ * @param string $permission         The permission string we know, e.g. 'edit value'.
+ *
+ * @param string $implied_permission The permission string which may or may not
+ *                                   be granted by $permission.
+ *
+ * @return bool TRUE if $implied_permission is granted by $permission, or FALSE
+ *              if not.
+ */
+function greyhead_encrypted_field_permission_implies_permission($permission, $implied_permission) {
+  $permission_maps = &drupal_static(__FUNCTION__, array());
+
+  if (!array_key_exists($permission, $permission_maps)) {
+    $permission_maps[$permission] = greyhead_encrypted_field_permission_implies_permissions($permission, FALSE);
+  }
+
+  return (bool) in_array($implied_permission, $permission_maps[$permission], TRUE);
 }
 
 /**
@@ -265,16 +511,32 @@ function greyhead_encrypted_field_acl_user_access($permission, $acls, $entity = 
  * For example, the $permission "edit value" implies "view value", because
  * otherwise you wouldn't be able to view the field's value when editing it.
  *
- * @param $permission
+ * @param      $permission
+ *
+ * @param bool $include_in_results Whether to include $permission in the array
+ *                                 of results.
  *
  * @return mixed
  */
-function greyhead_encrypted_field_acl_permission_also_grants_permissions($permission) {
-  if ($permission_data = greyhead_encrypted_field_acl_permissions_available($permission)) {
-    return $permission_data['implicit permissions'];
-  }
+function greyhead_encrypted_field_permission_implies_permissions($permission, $include_in_results = TRUE) {
+  if (greyhead_encrypted_field_acl_valid_permission($permission)
+    && ($permission_data = greyhead_encrypted_field_acl_permissions_available($permission))
+  ) {
+    $implicit_permissions = array();
 
-  return FALSE;
+    if (array_key_exists('implicit permissions', $permission_data)) {
+      $implicit_permissions = $permission_data['implicit permissions'];
+    }
+
+    // Have we been asked to include the $permission string in the implicit
+    // permissions? This makes it easier to create a comprehensive list without
+    // faffing about with merging arrays, etc.
+    if ($include_in_results) {
+      $implicit_permissions[] = $permission;
+    }
+
+    return $implicit_permissions;
+  }
 }
 
 /**
@@ -284,29 +546,69 @@ function greyhead_encrypted_field_acl_permission_also_grants_permissions($permis
  * value", "edit permissions" and "full control" would be returned, because they
  * all imply access to view the value of an encrypted field.
  *
- * @param $permission
+ * @param      $permission
+ *
+ * @param bool $include_in_results
+ *
+ * @return bool
  */
-function greyhead_encrypted_field_acl_permission_also_granted_by($permission) {
-  if ($permission_data = greyhead_encrypted_field_acl_permissions_available($permission)) {
-    return $permission_data['also granted by'];
-  }
+function greyhead_encrypted_field_permission_implied_by_permissions($permission, $include_in_results = TRUE) {
+  if (greyhead_encrypted_field_acl_valid_permission($permission)
+    && ($permission_data = greyhead_encrypted_field_acl_permissions_available($permission))
+  ) {
+    $implied_by_permissions = array();
 
-  return FALSE;
+    if (array_key_exists('also granted by', $permission_data)) {
+      $implied_by_permissions = $permission_data['also granted by'];
+    }
+
+    // Have we been asked to include the $permission string in the implied
+    // permissions? This makes it easier to create a comprehensive list without
+    // faffing about with merging arrays, etc.
+    if ($include_in_results) {
+      $implied_by_permissions[] = $permission;
+    }
+
+    return $implied_by_permissions;
+  }
 }
 
 /**
  * Check that the requested permission is a valid permission name.
  *
- * @param $permission
+ * @param string     $permission      The permission to check for.
+ *
+ * @param array|NULL $all_permissions An array of existing permissions. If NULL,
+ *                                    the existing permissions are retrieved
+ *                                    from
+ *                                    greyhead_encrypted_field_acl_permissions_available().
+ *
+ *                                    This function is also called from
+ *                                    greyhead_encrypted_field_acl_permissions_available(),
+ *                                    which provides a pre-populated $permissions
+ *                                    array to prevent recursion.
+ *
+ *                                    greyhead_encrypted_field_acl_valid_permission
  *
  * @return bool
  */
-function greyhead_encrypted_field_acl_valid_permission($permission, $permissions = NULL) {
-  if (is_null($permissions)) {
-    $permissions = greyhead_encrypted_field_acl_permissions_available();
+function greyhead_encrypted_field_acl_valid_permission($permission, $all_permissions = NULL) {
+  if (is_null($all_permissions)) {
+    $all_permissions = greyhead_encrypted_field_acl_permissions_available();
   }
 
-  return array_key_exists($permission, $permissions);
+  $valid_permission = array_key_exists($permission, $all_permissions);
+
+  if (!$valid_permission) {
+    greyhead_encrypted_field_error('Invalid permission %permission passed to %function in %file, line %line.', array(
+      '%permission' => $permission,
+      '%function' => __FUNCTION__,
+      '%file' => __FILE__,
+      '%line' => __LINE__,
+    ), WATCHDOG_ERROR, TRUE);
+  }
+
+  return $valid_permission;
 }
 
 /**
@@ -420,6 +722,22 @@ function greyhead_encrypted_field_greyhead_encrypted_field_acl_entity_types_info
     'access callback' => GEF_MODULE_NAME . '_acl_access_role_custom',
     'validation callback' => GEF_MODULE_NAME . '_acl_validate_role_custom',
   );
+
+  /**
+   * Access based on this field's parent node permissions (where applicable);
+   * for example, all users who can edit the field's parent node can do x, y
+   * or z.
+   *
+   * @examples:
+   *
+   *          parent-node:edit::permissions:edit title,edit value
+   *          parent-node:view::permissions:view title,view value
+   */
+  $acl_entity_types[GEF_PARENT_NODE] = array(
+    'module' => GEF_MODULE_NAME,
+    'access callback' => GEF_MODULE_NAME . '_acl_access_parent_node',
+    'validation callback' => GEF_MODULE_NAME . '_acl_validate_parent_node',
+  );
 }
 
 /**
@@ -512,9 +830,10 @@ function greyhead_encrypted_field_greyhead_encrypted_field_acl_permissions_avail
 
   $permissions[GEF_PERMISSION_EDIT_PERMISSIONS] = array(
     'title' => t('Edit an encrypted field\'s permissions'),
-//    'description' => t(''),
     'implicit permissions' => array(
-      GEF_PERMISSION_FULL_CONTROL,
+      //  GEF_PERMISSION_FULL_CONTROL, <-- No it doesn't - you can edit the
+      //  permissions on a field to gain full access, but you can't access the
+      //  whole field just by having permission to edit perms.
     ),
     'also granted by' => array(
       GEF_PERMISSION_FULL_CONTROL,
@@ -523,7 +842,6 @@ function greyhead_encrypted_field_greyhead_encrypted_field_acl_permissions_avail
 
   $permissions[GEF_PERMISSION_VIEW_PERMISSIONS] = array(
     'title' => t('View an encrypted field\'s permissions'),
-//    'description' => t(''),
     'implicit permissions' => array(),
     'also granted by' => array(
       GEF_PERMISSION_FULL_CONTROL,
@@ -533,7 +851,6 @@ function greyhead_encrypted_field_greyhead_encrypted_field_acl_permissions_avail
 
   $permissions[GEF_PERMISSION_EDIT_VALUE] = array(
     'title' => t('Edit field value'),
-//    'description' => t(''),
     'implicit permissions' => array(
       GEF_PERMISSION_VIEW_VALUE,
     ),
@@ -545,7 +862,6 @@ function greyhead_encrypted_field_greyhead_encrypted_field_acl_permissions_avail
 
   $permissions[GEF_PERMISSION_VIEW_VALUE] = array(
     'title' => t('View field value'),
-//    'description' => t(''),
     'implicit permissions' => array(),
     'also granted by' => array(
       GEF_PERMISSION_FULL_CONTROL,
@@ -556,7 +872,6 @@ function greyhead_encrypted_field_greyhead_encrypted_field_acl_permissions_avail
 
   $permissions[GEF_PERMISSION_EDIT_TITLE] = array(
     'title' => t('Edit field title'),
-//    'description' => t(''),
     'implicit permissions' => array(
       GEF_PERMISSION_VIEW_TITLE,
     ),
@@ -568,7 +883,6 @@ function greyhead_encrypted_field_greyhead_encrypted_field_acl_permissions_avail
 
   $permissions[GEF_PERMISSION_VIEW_TITLE] = array(
     'title' => t('View field title'),
-//    'description' => t(''),
     'implicit permissions' => array(),
     'also granted by' => array(
       GEF_PERMISSION_FULL_CONTROL,
@@ -714,24 +1028,12 @@ function greyhead_encrypted_field_acl_validate_acls(array &$acls) {
  *              were unknown.
  */
 function greyhead_encrypted_field_acl_validate_permissions(array $permissions) {
-  // Get all the configured permissions available to ACLs.
-  $available_permissions = greyhead_encrypted_field_acl_permissions_available();
-
   // Start on the assumption that they're all valid, but one invalid permission
   // will result in a false.
   $valid = TRUE;
 
   foreach ($permissions as $permission) {
-    $permission_valid = greyhead_encrypted_field_acl_valid_permission($permission);
-
-    if (!$permission_valid) {
-      greyhead_encrypted_field_error('Unknown permission %permission in greyhead_encrypted_field_acl_validate_permissions() - available permissions: %permissions.', array(
-        '%permission' => $permission,
-        '%permissions' => implode(', ', $available_permissions),
-      ));
-    }
-
-    $valid = $valid && $permission_valid;
+    $valid = $valid && greyhead_encrypted_field_acl_valid_permission($permission);
   }
 
   return $valid;
@@ -759,11 +1061,11 @@ function greyhead_encrypted_field_acl_validate_permission($permission) {
  * @return bool|mixed
  */
 function greyhead_encrypted_field_acl_validate_entity($entity_type, $entity_id) {
-  // Assume the entity is invalid until proven otherwise.
+  // We use NULL to indicate that the entity isn't validated yet, or is unknown.
   $return_array = array(
-    'valid_entity' => FALSE,
-    'valid_entity_type' => FALSE,
-    'valid_entity_id' => FALSE,
+    'valid_entity' => NULL,
+    'valid_entity_type' => NULL,
+    'valid_entity_id' => NULL,
   );
 
   // Load the entity type info, which tells us the access callback.
@@ -778,14 +1080,12 @@ function greyhead_encrypted_field_acl_validate_entity($entity_type, $entity_id) 
       // Assemble the $options array.
       $options = array(
         'property_id' => $entity_id,
-//        'uid' => $user->uid,
-//        'field_instance' => $instance,
         'entity_uid' => NULL,
         'entity' => NULL,
       );
 
       // At last, we know everything we need to - check if valid.
-      $return_array['valid_entity_id'] = call_user_func($validation_callback_function, $options);
+      $return_array['valid_entity_id'] = (bool) call_user_func($validation_callback_function, $options);
 
       if (!$return_array['valid_entity_id']) {
         greyhead_encrypted_field_error('Entity type %type valid but ID %id failed validation in function %function.', array(
@@ -796,26 +1096,32 @@ function greyhead_encrypted_field_acl_validate_entity($entity_type, $entity_id) 
       }
     }
     else {
-      // Unknown validation function.
+      // Entity information found but unknown validation function. We allow the
+      // entity to pass validation though.
       greyhead_encrypted_field_error('Validation function %function not found for Entity type %type and ID %id.', array(
         '%function' => $validation_callback_function,
         '%type' => $entity_type,
         '%id' => $entity_id,
-      ));
+      ), WATCHDOG_WARNING, TRUE);
     }
   }
   else {
-    // Unrecognised entity type.
+    // Unrecognised entity type, but we allow it to pass
     greyhead_encrypted_field_error('Unrecognised entity type %type with ID %id passed in greyhead_encrypted_field_acl_validate_entity().', array(
       '%type' => $entity_type,
       '%id' => $entity_id,
-    ));
+    ), WATCHDOG_WARNING, TRUE);
   }
 
   // Lastly, set $return_array['valid_entity'] to TRUE if both type and ID
-  // validated.
-  $return_array['valid_entity'] = $return_array['valid_entity_type']
-    && $return_array['valid_entity_id'];
+  // validated, or FALSE if either entity type or ID were definitely invalid.
+  if (($return_array['valid_entity_type'] === TRUE) && ($return_array['valid_entity_id'] === TRUE)) {
+    $return_array['valid_entity'] = TRUE;
+  }
+
+  if (($return_array['valid_entity_type'] === FALSE) || ($return_array['valid_entity_id'] === FALSE)) {
+    $return_array['valid_entity'] = FALSE;
+  }
 
   return $return_array;
 }
@@ -884,18 +1190,93 @@ function greyhead_encrypted_field_acl_validate_user_type(array $options) {
 }
 
 /**
+ * Verify whether a user has a certain permission on the field's parent node.
+ *
+ * If the field is not attached to a node, this permission returns NULL.
+ *
+ * $options['property_id'] contains the $op type, e.g. view, update, delete or
+ * create.
+ *
+ * $options['uid'] is the user UID.
+ *
+ * $options['entity'] should contain the field's parent node.
+ *
+ * @param array $options
+ *
+ * @return bool
+ */
+function greyhead_encrypted_field_acl_access_parent_node($options) {
+  $valid_node = FALSE;
+
+  // Is the field's parent entity a node?
+  if (isset($options['entity'], $options['entity']->nid, $options['entity']->vid)) {
+    // Looks like a node. Try loading it and compare the values.
+    if ($node_loaded = node_load($options['entity']->nid, $options['entity']->vid)) {
+      // Smells like a node...
+      if (($node_loaded->nid == $options['entity']->nid)
+        && ($node_loaded->vid == $options['entity']->vid)
+        && ($node_loaded->title == $options['entity']->title)
+      ) {
+        // Quacks like a node, so it's probably a node...
+        $valid_node = TRUE;
+      }
+    }
+  }
+
+  // If it's not valid, bail.
+  if (!$valid_node) {
+    return FALSE;
+  }
+
+  // Get the account to test.
+  $account = user_load($options['uid']);
+
+  // Depending on the type of operation, we need to either get the node object,
+  // or just the node type.
+  switch ($options['property_id']) {
+    case GEF_NODE_VIEW:
+    case GEF_NODE_EDIT:
+    case GEF_NODE_DELETE:
+      $node = $options['entity'];
+      break;
+
+    case GEF_NODE_CREATE:
+      $node = $options['entity']->type;
+      break;
+  }
+
+  return node_access($options['property_id'], $node, $account);
+}
+
+/**
+ * Verify whether the node operation is valid.
+ *
+ * It should be one of view, update, delete or create.
+ *
+ * @param array $options
+ *
+ * @return bool
+ */
+function greyhead_encrypted_field_acl_validate_parent_node(array $options) {
+  return in_array($options['property_id'], array(
+    GEF_NODE_VIEW,
+    GEF_NODE_EDIT,
+    GEF_NODE_DELETE,
+    GEF_NODE_CREATE,
+  ), TRUE);
+}
+
+/**
  * Get the FAPI element for the title of the encrypted field.
  *
  * @param string    $default_value
- * @param bool|TRUE $required
  *
  * @return array
  */
-function greyhead_encrypted_field_acl_get_label_element($default_value = '', $required = TRUE) {
+function greyhead_encrypted_field_acl_get_label_element($default_value = '') {
   $widget_label_element = array(
     '#title' => t('Name of this encrypted field'),
     '#type' => GEF_FIELD_LABEL_FAPI_TYPE,
-    '#required' => $required, // Only if on entity creation/edit form.
     '#default_value' => $default_value,
     '#maxlength' => 255,
     '#decrypted' => FALSE, // Set to TRUE if the data is decrypted.
@@ -940,44 +1321,110 @@ function greyhead_encrypted_field_acl_get_value_element($widget_type, $default_v
 }
 
 /**
- * Gets a textarea element with any ACLs for the encrypted field instance.
+ * Gets textarea elements with any ACLs for the encrypted field instance.
  *
  * This function does not check access to the element.
- * @see      greyhead_encrypted_field_acl_check_widget_form_elements_access() for that.
  *
- * @param array $acls
+ * @param      $form_type
+ * @param null $acls
  *
  * @return array
  */
-function greyhead_encrypted_field_acl_get_acls_element($acls = array(), $entity = NULL, $sitewide_defaults_form = FALSE) {
+function greyhead_encrypted_field_acl_get_acls_element($form_type, $acls = NULL) {
+  switch ($form_type) {
+    case GEF_FORM_TYPE_SITEWIDE:
+      $title = 'Permissions applied to all encrypted fields on this site';
+      $intro_text = 'Default access control lists which apply to all fields across the site. These permissions will be added to any field-specific permissions.';
+
+      $element_type = GEF_FIELD_GLOBAL_ACLS_FAPI_TYPE;
+      $element_key = GEF_FIELD_GLOBAL_ACLS_FAPI_KEY;
+
+      break;
+
+    case GEF_FORM_TYPE_SITEWIDE_READONLY:
+      $title = 'Inherited permissions';
+
+      $element_type = GEF_FIELD_GLOBAL_ACLS_FAPI_TYPE;
+      $element_key = GEF_FIELD_GLOBAL_ACLS_FAPI_KEY;
+
+      break;
+
+    case GEF_FORM_TYPE_FIELD_INSTANCE:
+      $title = 'Default permissions for this encrypted field';
+      $intro_text = 'Default access control lists to use when creating new entities which contain this field. Each field value will have its own access control list.';
+      $element_type = GEF_FIELD_DEFAULT_ACLS_FAPI_TYPE;
+      $element_key = GEF_FIELD_DEFAULT_ACLS_FAPI_KEY;
+      break;
+
+    case GEF_FORM_TYPE_ENTITY:
+    default:
+      $title = 'Permissions for this encrypted field';
+      $intro_text = 'Access control lists for this encrypted field value.';
+      $element_type = GEF_FIELD_ACLS_FAPI_TYPE;
+      $element_key = GEF_FIELD_ACLS_FAPI_KEY;
+      break;
+  }
+
+  if (($form_type == GEF_FORM_TYPE_SITEWIDE)
+    || ($form_type == GEF_FORM_TYPE_SITEWIDE_READONLY)
+  ) {
+    // If $acls is NULL, we need to get the site-wide defaults.
+    if (is_null($acls)) {
+      $acls = greyhead_encrypted_field_acl_default_acls(GEF_ACL_CONTEXT_SITEWIDE);
+    }
+  }
+
   // Crufty data handling; if the ACLs aren't already in strings, convert now.
-  if (!is_string($acls)) {
+  if (!is_null($acls) && !is_string($acls)) {
     $acls = greyhead_encrypted_field_acl_acls_to_strings($acls);
   }
 
-  // Set some of the text according to the type of form.
-  $intro_text = 'Set the access control lists for this encrypted field.';
+  // Create the basic textarea.
+  $widget_acls_textarea = array(
+    '#type' => $element_type,
+    '#title' => t($title),
+    '#element_key' => $element_key,
+    '#default_value' => $acls,
+    // ACLs are always decrypted.
+    '#decrypted' => TRUE,
+  );
 
-  // Is this ACL field being shown on an entity - e.g. a node form - or the
-  // field configuration form?
-  if (is_null($entity)) {
-    $intro_text = 'Set the default access control lists to use when creating new entities which contain this field.';
+  // If we've been asked for the GEF_FORM_TYPE_SITEWIDE_READONLY textarea, we
+  // set it to read-only and use different help text to other instances of the
+  // ACLs field.
+  if ($form_type == GEF_FORM_TYPE_SITEWIDE_READONLY) {
+    $widget_acls_textarea['#value'] = $widget_acls_textarea['#default_value'];
+    $widget_acls_textarea['#disabled'] = TRUE;
+
+    // If the current user can administer the Encrypted Field's settings, add
+    // a link to edit the default ACLs.
+    $editlink_html = '';
+
+    if (user_access(GEF_PERMISSION_ADMINISTER_MODULE)) {
+      $editlink_html = ' ' . l(
+          t('You can edit these default permissions here.'),
+          'admin/config/system/encrypt/encryptedfield', array(
+          'attributes' => array(
+            'target' => '_blank',
+          ),
+        ));
+    }
+
+    // Create a read-only textarea containing the site-wide ACLs and append
+    // it to the ACLs textarea.
+    $widget_acls_textarea['#description'] = t('These ACLs are applied to all encrypted fields on the site, in addition to any extra permissions you specify above.!editlink', array(
+      '!editlink' => $editlink_html,
+    ));
+
+    gefdpm(__FUNCTION__);
+    gefdpm($widget_acls_textarea);
   }
-
-  // Is this ACL field being shown on the module's overall config page.
-  if ($sitewide_defaults_form) {
-    $intro_text = 'Set the default access control lists to use when creating new fields.';
-  }
-
-  // Create the ACL textarea.
-  $widget_acls_element = array(
-    '#type' => 'textarea',
-    '#title' => t('Permissions for this encrypted field'),
-    '#description' => t('<p>!intro_text</p> '
+  else {
+    $widget_acls_textarea['#description'] = t('<p>!intro_text</p> '
       . '<p>ACLs are written in the form <em>[entity type]:[entity ID]::permissions:[permission 1],[permission 2],[...],[permission n]</em></p> '
       . '<p>For example, this ACL allows user monkeybones to edit the field and its label: <em>!entitytypeuser:monkeybones::permissions:!edittitle,!editvalue</em></p> '
       . '<p>The entity types available are: <em>!entitytypes</em>.</p> '
-      . '<p>The permissions available are: <em>!permissionsavailable</em>.</p> '
+      . '<p>The permissions available for each entity are: <em>!permissionsavailable</em>.</p> '
       . '<p>By default, the user who created the field, '
       . 'and the site administrators, have full control over the field. Logged-'
       . 'in users can view the field title but can\'t view the encrypted data, '
@@ -988,16 +1435,17 @@ function greyhead_encrypted_field_acl_get_acls_element($acls = array(), $entity 
       '!editvalue' => GEF_PERMISSION_EDIT_VALUE,
       '!entitytypes' => implode(', ', array_keys(greyhead_encrypted_field_acl_entity_types_info())),
       '!permissionsavailable' => implode(', ', array_keys(greyhead_encrypted_field_acl_permissions_available())),
-    )),
-    '#default_value' => $acls,
-    '#decrypted' => TRUE, // This field is always decrypted.
-    '#element_validate' => array(
+    ));
+
+    $widget_acls_textarea['#element_validate'] = array(
       'greyhead_encrypted_field_acl_get_acls_element_validate',
       'greyhead_encrypted_field_encrypt',
-    ),
-  );
+    );
 
-  return $widget_acls_element;
+    $widget_acls_textarea['#default_value'] = $acls;
+  }
+
+  return $widget_acls_textarea;
 }
 
 /**
@@ -1007,6 +1455,13 @@ function greyhead_encrypted_field_acl_get_acls_element($acls = array(), $entity 
  * @param $form_state
  */
 function greyhead_encrypted_field_acl_get_acls_element_validate($element, &$form_state) {
+  // Don't validate if we have a greyhead_encrypted_field_reset_default_acls
+  // field and it's checked.
+  if (isset($form_state['values']['greyhead_encrypted_field_reset_default_acls'])
+    && $form_state['values']['greyhead_encrypted_field_reset_default_acls']) {
+    return;
+  }
+
   $acls_textarea_value = drupal_array_get_nested_value($form_state['values'], $element['#parents']);
 
   $acls = greyhead_encrypted_field_acl_textfield_to_acls($acls_textarea_value);
@@ -1045,15 +1500,6 @@ function greyhead_encrypted_field_acl_get_acls_element_validate($element, &$form
 
     form_error($element, t('<p>The following ACLs contain errors:</p> <ul><li>' . implode('</li> <li>', $invalid_acls) . '</li></ul>'));
   }
-  else {
-    // It's valid. Change the ACLs into an array of ACL objects for storing.
-//    form_set_value($element, serialize($acls), $form_state);
-  }
-
-//  gefdpm(__FUNCTION__);
-//  gefdpm($form_state);
-//  gefdpm($acls_textarea_value);
-//  gefdpm($acls);
 }
 
 /**
@@ -1082,14 +1528,6 @@ function greyhead_encrypted_field_encrypt($element, &$form_state) {
   gefdpm(__FUNCTION__);
   gefdpm($element);
   gefdpm($form_state['values']);
-
-//  if ($element['#name'] == 'field_secret_data_3[und][0][acls]') {
-//    gdpm($element);
-//    gdpm($element_value);
-//    gdpm($element_value_encrypted);
-//    gdpm($form_state['values']);
-//    die('greyhead_encrypted_field_encrypt');
-//  }
 }
 
 /**
@@ -1112,20 +1550,15 @@ function greyhead_encrypted_field_encrypt($element, &$form_state) {
  * @return array|null
  */
 function greyhead_encrypted_field_acl_get_acls($field = NULL, $instance = NULL, $items = NULL, $items_delta = NULL) {
-  if (isset($items, $items_delta, $items[$items_delta], $items[$items_delta][GEF_FIELD_ACLS_FAPI_KEY])
-    && !empty($items[$items_delta][GEF_FIELD_ACLS_FAPI_KEY])
+  if (!is_null($items) && !is_null($items_delta)
+    && isset($items[$items_delta], $items[$items_delta][GEF_FIELD_ACLS_FAPI_KEY])
   ) {
     $acls = $items[$items_delta][GEF_FIELD_ACLS_FAPI_KEY];
   }
-  elseif (isset($instance, $instance[GEF_SETTINGS_KEY][GEF_FIELD_DEFAULT_ACLS_FAPI_KEY])
-    && !empty($instance[GEF_SETTINGS_KEY][GEF_FIELD_DEFAULT_ACLS_FAPI_KEY])
+  elseif (!is_null($instance)
+    && isset($instance[GEF_SETTINGS_KEY], $instance[GEF_SETTINGS_KEY][GEF_FIELD_DEFAULT_ACLS_FAPI_KEY])
   ) {
     $acls = $instance[GEF_SETTINGS_KEY][GEF_FIELD_DEFAULT_ACLS_FAPI_KEY];
-  }
-  elseif (isset($field, $field[GEF_SETTINGS_KEY][GEF_FIELD_DEFAULT_ACLS_FAPI_KEY])
-    && !empty($field[GEF_SETTINGS_KEY][GEF_FIELD_DEFAULT_ACLS_FAPI_KEY])
-  ) {
-    $acls = $field[GEF_SETTINGS_KEY][GEF_FIELD_DEFAULT_ACLS_FAPI_KEY];
   }
   else {
     $acls = greyhead_encrypted_field_acl_default_acls();
@@ -1135,95 +1568,67 @@ function greyhead_encrypted_field_acl_get_acls($field = NULL, $instance = NULL, 
 }
 
 /**
- * Checks whether a user has access to view or edit an encrypted field's title,
- * value and ACLs.
- *
- * Depending on their access to each of the three parts, the user will either be
- * able to edit, view but not make changes, or they may not see anything.
- *
- * @see also greyhead_encrypted_field_acl_check_widget_form_element_access().
- *
- * @param      $widget_form
- * @param      $entity
- * @param null $account
- */
-function greyhead_encrypted_field_acl_check_widget_form_elements_access(&$widget_form, $entity, $acls, $account = NULL) {
-  // Check access to the label field.
-  greyhead_encrypted_field_acl_check_widget_form_element_access($widget_form, GEF_FIELD_LABEL_FAPI_KEY, $entity, GEF_PERMISSION_EDIT_TITLE, GEF_PERMISSION_VIEW_TITLE, $acls, $account);
-
-  // Check access to the value field.
-  greyhead_encrypted_field_acl_check_widget_form_element_access($widget_form, GEF_FIELD_VALUE_FAPI_KEY, $entity, GEF_PERMISSION_EDIT_VALUE, GEF_PERMISSION_VIEW_VALUE, $acls, $account);
-
-  // Check access to the ACLs field.
-  greyhead_encrypted_field_acl_check_widget_form_element_access($widget_form, GEF_FIELD_ACLS_FAPI_KEY, $entity, GEF_PERMISSION_EDIT_PERMISSIONS, GEF_PERMISSION_VIEW_PERMISSIONS, $acls, $account);
-}
-
-/**
  * Checks whether a user has access to view or edit an encrypted field.
  *
  * Depending on their access, the user will either be able to edit the field's
  * value, view the field but not make changes, or see a message telling them
  * that the field is not accessible.
  *
- * @see also greyhead_encrypted_field_acl_check_widget_form_elements_access().
+ * @see      also greyhead_encrypted_field_acl_check_widget_form_elements_access().
  *
- * @param      $widget_form
- * @param      $form_element_to_check
+ * @param      $widget_form_element
  * @param      $entity
  * @param      $edit_permission
  * @param      $view_permission
+ * @param      $acls
  * @param null $account
+ *
+ * @internal param $form_element_to_check
  */
-function greyhead_encrypted_field_acl_check_widget_form_element_access(&$widget_form, $form_element_to_check, $entity, $edit_permission, $view_permission, $acls, $account = NULL) {
+function greyhead_encrypted_field_acl_check_widget_form_element_access(&$widget_form_element, $entity, $edit_permission = NULL, $view_permission, $acls, $account = NULL) {
+  // Do we have a user account?
   if (is_null($account)) {
     $account = $GLOBALS['user'];
   }
 
+  // Debugging fun and games.
   gefdpm(__FUNCTION__);
-  gefdpm($widget_form, __FUNCTION__ . ' $widget_form');
-
+  gefdpm($widget_form_element, __FUNCTION__ . ' $widget_form');
   gefdpm('@TODO: pass in the entity so we can try to get the owner.');
 
   // Do they have view access?
   if (greyhead_encrypted_field_acl_user_access($view_permission, $acls, $entity, GEF_FIELD_TYPE, $account)) {
     // Yes. If the #decrypted flag is FALSE, we need to decrypt it and update
     // the flag.
-    if (!$widget_form[$form_element_to_check]['#decrypted']) {
-      $default_value = $widget_form[$form_element_to_check]['#default_value'];
+    if (!$widget_form_element['#decrypted']) {
+      $default_value = $widget_form_element['#default_value'];
 
       // If the value of this field is serialized, it's probably encrypted.
       if (@unserialize($default_value)) {
-        $widget_form[$form_element_to_check]['#default_value'] = decrypt($default_value);
+        $widget_form_element['#default_value'] = @decrypt($default_value);
       }
 
-      $widget_form[$form_element_to_check]['#decrypted'] = TRUE;
+      $widget_form_element['#decrypted'] = TRUE;
     }
 
-    // Does the user have access to edit the field?
-    if (!greyhead_encrypted_field_acl_user_access($edit_permission, $acls, $entity, GEF_FIELD_TYPE, $account)) {
+    // Have we been asked to check the field's edit access, and does the user
+    // have access to edit the field?
+    if (is_null($edit_permission)
+      || !greyhead_encrypted_field_acl_user_access($edit_permission, $acls, $entity, GEF_FIELD_TYPE, $account)
+    ) {
       // No. Disable the field but allow them to view its decrypted value.
-      $widget_form[$form_element_to_check]['#disabled'] = TRUE;
-      $widget_form[$form_element_to_check]['#value'] = $widget_form[$form_element_to_check]['#default_value'];
+      $widget_form_element['#disabled'] = TRUE;
+      $widget_form_element['#value'] = $widget_form_element['#default_value'];
     }
   }
   else {
     // No access at all. Hide the field's contents by copying the label field,
     // hiding the existing label field, and changing the copied field's text.
-    $widget_form[$form_element_to_check . '_copy'] = $widget_form[$form_element_to_check];
-    $widget_form[$form_element_to_check]['#type'] = 'value';
+    $widget_form_element['#value'] = $widget_form_element['#default_value'];
 
-    // Work out the type of element so we can show a sensible "no access"
-    // message.
-    $thing = 'field';
-
-    if ($form_element_to_check == GEF_FIELD_LABEL_FAPI_KEY) {
-      $thing = 'label';
-    }
-//    elseif ($form_element_to_check == GEF_FIELD_VALUE_FAPI_KEY) {
-//      $thing = 'data';
-//    }
-
-    $widget_form[$form_element_to_check . '_copy']['#value'] = t(GEF_NO_ACCESS, array('!thing' => t($thing)));
+    // Show a sensible "no access" message.
+    $widget_form_element['#default_value'] = t(GEF_NO_ACCESS, array('!thing' => t('thing')));
+    $widget_form_element['#disabled'] = TRUE;
   }
 }
 
@@ -1245,17 +1650,81 @@ function greyhead_encrypted_field_error($message, $parameters, $severity = WATCH
 /**
  * Wrapper around gefdpm() to allow us to turn debugging output on and off.
  *
- * @param      $variable
- * @param null $context
+ * @param      $input
+ * @param null $name
  */
-function gefdpm($variable, $context = NULL) {
+function gefdpm($input, $name = NULL) {
   if (variable_get('greyhead_encrypted_field_debug')
     && function_exists('dpm')
   ) {
-    if (!is_null($context)) {
-      gefdpm($context);
+    if (!is_null($name)) {
+      dpm($name);
     }
 
-    gefdpm($variable);
+    if (user_access('access devel information')) {
+      $export = kprint_r($input, TRUE, $name);
+      drupal_set_message($export, 'status');
+    }
+    return $input;
+  }
+}
+
+/**
+ * Implements hook_greyhead_encrypted_field_acl_validate_alter.
+ *
+ * Prevent the anonymous user role and everyone user types from being
+ * granted full control, edit permissions, view value, or edit title/value.
+ *
+ * @param $acl
+ */
+function greyhead_encrypted_field_greyhead_encrypted_field_acl_validate_alter(&$acl) {
+  $dangerous_permissions = greyhead_encrypted_field_dangerous_permissions();
+  $dangerous_entities = greyhead_encrypted_field_dangerous_entities();
+
+  // Create a bool which will be TRUE if the entity grants access to
+  // anonymous users.
+  $anonymous_access = FALSE;
+
+  // Loop through the dangerous entities list to see if we have any matches.
+  foreach ($dangerous_entities as $dangerous_entity_type => $dangerous_entity_ids) {
+    // Don't keep searching if we already know we have an issue.
+    if ($anonymous_access) {
+      break;
+    }
+
+    foreach ($dangerous_entity_ids as $dangerous_entity_id) {
+      // Don't keep searching if we already know we have an issue.
+      if ($anonymous_access) {
+        break;
+      }
+
+      if (($acl->entity_type == $dangerous_entity_type)
+        && ($acl->entity_id == $dangerous_entity_id)
+      ) {
+        $anonymous_access = TRUE;
+      }
+    }
+  }
+
+  if ($anonymous_access) {
+    // Loop through the ACL's permissions and remove any in the above list.
+    $permissions_removed = array();
+
+    foreach ($acl->permissions as $row => $permission) {
+      if (in_array($permission, $dangerous_permissions, TRUE)) {
+        $permissions_removed[] = $permission;
+        unset($acl->permissions[$row]);
+      }
+    }
+
+    if (!empty($permissions_removed)) {
+      $parameters = array(
+        '%entity_type' => $acl->entity_type,
+        '%entity_id' => $acl->entity_id,
+        '%permissions_removed' => implode(', ', $permissions_removed),
+      );
+
+      greyhead_encrypted_field_error('The following unsafe permissions were removed from the %entity_type "%entity_id" ACL: %permissions_removed.', $parameters, WATCHDOG_WARNING);
+    }
   }
 }

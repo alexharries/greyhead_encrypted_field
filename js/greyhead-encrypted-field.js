@@ -29,34 +29,5 @@ var Drupal = Drupal || {};
       });
     }
   };
-
-  /**
-   * Detect clicks on a decrypted encrypted field value's .contenteditable and select
-   * all its contents.
-   */
-  //Drupal.behaviors.greyheadEncryptedFieldSelectContents = {
-  //  attach: function (context, settings) {
-  //    $(".encrypted-field .contenteditable").click(function() {
-  //      window.setTimeout(function() {
-  //        var sel, range;
-  //        if (window.getSelection && document.createRange) {
-  //          range = document.createRange();
-  //          range.selectNodeContents(div);
-  //          sel = window.getSelection();
-  //          sel.removeAllRanges();
-  //          sel.addRange(range);
-  //        } else if (document.body.createTextRange) {
-  //          range = document.body.createTextRange();
-  //          range.moveToElementText(div);
-  //          range.select();
-  //        }
-  //      }, 1);
-  //    });
-  //
-  //    //$(".encrypted-field .contenteditable").click(function () {
-  //    //  $(this).select();
-  //    //});
-  //  }
-  //};
 })
 (jQuery, Drupal);

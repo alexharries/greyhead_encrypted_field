@@ -24,7 +24,6 @@
 
 .encrypted-field-label {
   width: 30%;
-  /*font-size: 1.3em;*/
   text-align: right;
   padding: 0.5em;
 }
@@ -46,22 +45,16 @@
   z-index: 1;
 }
 
-.encrypted-field .encrypted-field-value.decrypted .contenteditable {
-  /*opacity: 0.05;*/
-  /*-moz-opacity: 5;*/
-}
-
-.encrypted-field:hover .encrypted-field-value.decrypted .contenteditable {
-  /*opacity: 1;*/
-  /*-moz-opacity: 100;*/
+.contenteditable:focus {
+  outline: 0;
 }
 
 .encrypted-field-value {
   position: absolute;
-  top: 0.2em;
-  right: 0.2em;
-  bottom: 0.2em;
-  left: 35%;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 31%;
   background-color: #eee;
   z-index: 1;
   font-family: Monaco, Menlo, Consolas, "Courier New", monospace;
@@ -87,11 +80,8 @@
 }
 
 .encrypted-field-value.decrypted .contenteditable {
-  border: #ddd 1px dotted;
-  color: #33aa33;
+  color: #ddd;
   resize: none;
-  /*border: #33aa33 3px dotted;*/
-  /*border: #fff 1px solid;*/
 }
 
 .encrypted-field:hover {
@@ -107,6 +97,5 @@
 }
 
 .encrypted-field:hover .encrypted-field-value.decrypted .contenteditable {
-  border: #ddd 1px solid;
-  background-color: #fff;
+  color: #33aa33;
 }

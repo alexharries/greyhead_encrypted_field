@@ -28,11 +28,15 @@ class greyhead_acl {
    * @param       $permissions_array_or_string
    */
   function __construct($entity_type, $entity_id, $permissions_array_or_string) {
+    gefdpm(__FUNCTION__);
+    gefdpm($entity_type);
+    gefdpm($entity_id);
+    gefdpm($permissions_array_or_string);
     $this->entity_type = $entity_type;
     $this->entity_id = $entity_id;
 
     // Cast $permissions_array_or_string to an array.
-    $this->permissions = (array)$permissions_array_or_string;
+    $this->permissions = $this->permissions_to_array($permissions_array_or_string);
 
     $this->valid = GEF_ACL_NOT_VALIDATED;
 
@@ -41,6 +45,21 @@ class greyhead_acl {
 
     // Validate the ACL.
     $this->validate();
+  }
+
+  /**
+   * Convert a permissions array or string into an array.
+   *
+   * @param $permissions_array_or_string
+   *
+   * @return array
+   */
+  function permissions_to_array($permissions_array_or_string) {
+    if (is_string($permissions_array_or_string)) {
+      $permissions_array_or_string = $this->value_string_to_array($permissions_array_or_string);
+    }
+
+    return (array)$permissions_array_or_string;
   }
 
   /**
@@ -143,6 +162,11 @@ class greyhead_acl {
     $valid_permissions = $this->validate_permissions();
 
     $this->valid = $valid_entity && $valid_permissions;
+
+    // Implement a hook_greyhead_encrypted_field_acl_validate_alter. We use this
+    // to prevent the anonymous user role and everyone user types from being
+    // granted full control, edit permissions, view value, or edit title/value.
+    drupal_alter('greyhead_encrypted_field_acl_validate', $this);
 
     if (!$this->valid) {
       $this->error('ACL for entity type %type ID %id failed validation - see previous messages for root cause.', array(

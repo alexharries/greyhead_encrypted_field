@@ -72,7 +72,6 @@
   else: ?>encrypted<?php
   endif ?>"<?php print $content_attributes ?>>
     <?php if ($element[GEF_FIELD_VALUE_FAPI_KEY . '_decrypted']): ?>
-<!--      <textarea readonly>--><?php //print $element[GEF_FIELD_VALUE_FAPI_KEY] ?><!--</textarea>-->
       <div contenteditable class="contenteditable"><?php print $element[GEF_FIELD_VALUE_FAPI_KEY] ?></div>
     <?php else: ?>
     <div class="not-a-textarea"><?php print $element[GEF_FIELD_VALUE_FAPI_KEY] ?></div>
