@@ -731,10 +731,10 @@ function greyhead_encrypted_field_field_formatter_view($entity_type, $entity, $f
               drupal_get_path('module', GEF_MODULE_NAME) .
               '/css/greyhead-encrypted-field.css',
             ),
-            'js' => array(
-              drupal_get_path('module', GEF_MODULE_NAME) .
-              '/js/greyhead-encrypted-field.js',
-            ),
+//            'js' => array(
+//              drupal_get_path('module', GEF_MODULE_NAME) .
+//              '/js/greyhead-encrypted-field.js',
+//            ),
           ),
         );
 
